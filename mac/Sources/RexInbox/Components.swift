@@ -41,7 +41,7 @@ struct Card<Content: View>: View {
 
     var body: some View {
         content
-            .padding(.vertical, 12)
+            .padding(.vertical, 10)
             .padding(.horizontal, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
@@ -53,7 +53,7 @@ struct Card<Content: View>: View {
                     RoundedRectangle(cornerRadius: 1.5)
                         .fill(tint)
                         .frame(width: 3)
-                        .padding(.vertical, 12)
+                        .padding(.vertical, 10)
                 }
             }
             .onHover { hover = $0 }
@@ -136,7 +136,7 @@ struct AlertCard: View {
     var body: some View {
         let busy = store.busy.contains(alert.id)
         Card(tint: alert.color) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Image(systemName: alert.symbol).foregroundStyle(alert.color)
                     Text(alert.headline).font(.headline)
@@ -144,19 +144,30 @@ struct AlertCard: View {
                     Text(Format.age(alert.createdAt, now: store.now) + " ago")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
-                MetaLine(parts: ["#\(alert.id)", alert.place, Format.tilde(alert.cwd)])
-                if !alert.what.isEmpty {
-                    Text(alert.what)
-                        .font(.system(.callout, design: .monospaced))
-                        .textSelection(.enabled)
-                        .lineLimit(8)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.06)))
-                }
                 HStack(spacing: 8) {
-                    if alert.canAnswer {
+                    MetaLine(parts: ["#\(alert.id)", alert.place, Format.tilde(alert.cwd)])
+                    Spacer(minLength: 8)
+                    // Without Approve and Deny, the actions fit on this line.
+                    if !alert.canAnswer {
+                        actions(busy: busy).controlSize(.small)
+                    }
+                }
+                if !alert.what.isEmpty {
+                    if alert.category == "needs_you" {
+                        Text(alert.what)
+                            .font(.system(.callout, design: .monospaced))
+                            .textSelection(.enabled)
+                            .lineLimit(8)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.06)))
+                    } else {
+                        Text(alert.what).font(.callout).textSelection(.enabled).lineLimit(4)
+                    }
+                }
+                if alert.canAnswer {
+                    HStack(spacing: 8) {
                         Button {
                             Task { await store.approve(alert.id, seen: alert.msg) }
                         } label: {
@@ -169,36 +180,45 @@ struct AlertCard: View {
                         } label: {
                             Label("Deny", systemImage: "xmark")
                         }
+                        Spacer()
+                        actions(busy: busy)
                     }
-                    Button {
-                        Task { await store.open(alert.id) }
-                    } label: {
-                        Label("Open in Rex", systemImage: "arrow.up.forward.app")
-                    }
-                    if busy { ProgressView().controlSize(.small) }
-                    Spacer()
-                    if alert.category == "needs_you" {
-                        Menu {
-                            Button("Snooze 1 hour") { Task { await store.snooze(alert.id, "1h") } }
-                            Button("Snooze 4 hours") { Task { await store.snooze(alert.id, "4h") } }
-                            Button("Snooze until tomorrow") { Task { await store.snooze(alert.id, "1d") } }
-                            Divider()
-                            Button("Mark Done") { Task { await store.done(alert.id) } }
-                        } label: {
-                            Image(systemName: "ellipsis.circle")
-                        }
-                        .menuStyle(.borderlessButton)
-                        .menuIndicator(.hidden)
-                        .fixedSize()
-                        .help("Snooze or mark done")
-                    } else {
-                        Button("Done") { Task { await store.done(alert.id) } }
-                    }
+                    .padding(.top, 2)
+                    .disabled(busy)
                 }
-                .padding(.top, 2)
-                .disabled(busy)
             }
         }
+    }
+
+    /// Open, and Snooze/Done (a menu for what needs you, a button otherwise).
+    @ViewBuilder
+    private func actions(busy: Bool) -> some View {
+        HStack(spacing: 8) {
+            if busy { ProgressView().controlSize(.small) }
+            Button {
+                Task { await store.open(alert.id) }
+            } label: {
+                Label("Open in Rex", systemImage: "arrow.up.forward.app")
+            }
+            if alert.category == "needs_you" {
+                Menu {
+                    Button("Snooze 1 hour") { Task { await store.snooze(alert.id, "1h") } }
+                    Button("Snooze 4 hours") { Task { await store.snooze(alert.id, "4h") } }
+                    Button("Snooze until tomorrow") { Task { await store.snooze(alert.id, "1d") } }
+                    Divider()
+                    Button("Mark Done") { Task { await store.done(alert.id) } }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Snooze or mark done")
+            } else {
+                Button("Done") { Task { await store.done(alert.id) } }
+            }
+        }
+        .disabled(busy)
     }
 }
 
@@ -209,6 +229,8 @@ struct MessageCard: View {
     let message: Message
     @State private var draft = ""
     @State private var expanded = false
+    @State private var replying = false
+    @FocusState private var focused: Bool
 
     private var long: Bool { message.body.count > 400 || message.body.split(separator: "\n").count > 6 }
 
@@ -216,7 +238,7 @@ struct MessageCard: View {
         let busy = store.busy.contains(message.id)
         let unread = message.status == "unread"
         Card(tint: unread ? .accentColor : nil) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Image(systemName: unread ? "envelope.badge.fill" : "envelope.open")
                         .foregroundStyle(unread ? Color.accentColor : .secondary)
@@ -234,23 +256,35 @@ struct MessageCard: View {
                 Text(message.body)
                     .font(.body)
                     .textSelection(.enabled)
-                    .lineLimit(expanded ? nil : 6)
+                    .lineLimit(expanded ? nil : 4)
                     .fixedSize(horizontal: false, vertical: true)
                 if long {
                     Button(expanded ? "Show less" : "Show more") { expanded.toggle() }
                         .buttonStyle(.link)
                 }
-                HStack(alignment: .bottom, spacing: 8) {
-                    TextField("Reply…", text: $draft, axis: .vertical)
-                        .textFieldStyle(.roundedBorder)
-                        .lineLimit(1...6)
-                        .onSubmit(send)
-                    Button("Send", action: send)
-                        .buttonStyle(.borderedProminent)
-                        .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || busy)
+                if replying {
+                    HStack(alignment: .bottom, spacing: 8) {
+                        TextField("Reply to \(message.from)…", text: $draft, axis: .vertical)
+                            .textFieldStyle(.roundedBorder)
+                            .lineLimit(1...6)
+                            .focused($focused)
+                            .onSubmit(send)
+                        Button("Send", action: send)
+                            .buttonStyle(.borderedProminent)
+                            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || busy)
+                    }
+                    .padding(.top, 2)
                 }
-                .padding(.top, 2)
                 HStack(spacing: 8) {
+                    if !replying {
+                        Button {
+                            replying = true
+                            focused = true
+                        } label: {
+                            Label("Reply", systemImage: "arrowshape.turn.up.left")
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
                     if message.fromBlock != nil {
                         Button {
                             Task { await store.open(message.id) }
@@ -271,6 +305,7 @@ struct MessageCard: View {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         draft = ""
+        replying = false
         Task { await store.reply(message.id, text) }
     }
 }

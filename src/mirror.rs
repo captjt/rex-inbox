@@ -56,7 +56,13 @@ pub struct Pane {
     pub window_id: Option<String>,
     pub label: String,
     pub creator: String,
+    /// The folder to show: what the program reported (OSC 7), else the
+    /// foreground process's working directory.
     pub cwd: Option<String>,
+    #[serde(skip)]
+    reported_cwd: Option<String>,
+    #[serde(skip)]
+    process_cwd: Option<String>,
     /// The foreground process's name, such as `claude` or `zsh`.
     pub process: Option<String>,
     pub records: BTreeMap<String, Record>,
@@ -72,9 +78,15 @@ impl Pane {
             label: String::new(),
             creator: TERMINAL.to_string(),
             cwd: None,
+            reported_cwd: None,
+            process_cwd: None,
             process: None,
             records: BTreeMap::new(),
         }
+    }
+
+    fn refresh_cwd(&mut self) {
+        self.cwd = self.reported_cwd.clone().or_else(|| self.process_cwd.clone());
     }
 
     pub fn root(&self) -> Option<&Record> {
@@ -201,13 +213,24 @@ impl HostMirror {
         changes
     }
 
-    /// Set a pane's records and process from a snapshot.
-    pub fn apply_pane_status(&mut self, session_id: &str, block_id: &str, records: Vec<Record>, process: Option<&Value>) {
+    /// Set a pane's records, process and reported folder from a snapshot.
+    pub fn apply_pane_status(
+        &mut self,
+        session_id: &str,
+        block_id: &str,
+        records: Vec<Record>,
+        process: Option<&Value>,
+        pwd: Option<&Value>,
+    ) {
         let host = self.host.clone();
         let p = self.panes.entry(block_id.to_string()).or_insert_with(|| Pane::new(&host, session_id, block_id));
         p.records = records.into_iter().map(|r| (r.id.clone(), r)).collect();
         if let Some(fg) = process.and_then(|v| v.get("foreground")) {
             set_process(p, fg);
+        }
+        if let Some(path) = pwd.and_then(|v| v["pwd"].as_str()).filter(|s| !s.is_empty()) {
+            p.reported_cwd = Some(path_of(path));
+            p.refresh_cwd();
         }
     }
 
@@ -285,6 +308,11 @@ impl HostMirror {
                 }
                 changes.panes.insert(block);
             }
+            // A new program reports its own folder, if any.
+            "child_exited" => {
+                pane.reported_cwd = None;
+                pane.refresh_cwd();
+            }
             "process_changed" => {
                 if let Some(fg) = body.get("foreground") {
                     set_process(pane, fg);
@@ -292,7 +320,8 @@ impl HostMirror {
             }
             "pwd_changed" => {
                 if let Some(pwd) = s(&body["pwd"]) {
-                    pane.cwd = Some(pwd);
+                    pane.reported_cwd = Some(path_of(&pwd));
+                    pane.refresh_cwd();
                 }
             }
             _ => {}
@@ -306,6 +335,44 @@ fn set_process(p: &mut Pane, fg: &Value) {
     }
     p.process = s(&fg["name"]);
     if let Some(cwd) = s(&fg["cwd"]) {
-        p.cwd = Some(cwd);
+        p.process_cwd = Some(cwd);
+        p.refresh_cwd();
+    }
+}
+
+/// Shells report their folder (OSC 7) as `file://host/path`, percent-encoded.
+fn path_of(pwd: &str) -> String {
+    let Some(rest) = pwd.strip_prefix("file://") else { return pwd.to_string() };
+    let path = match rest.find('/') {
+        Some(i) => &rest[i..],
+        None => return pwd.to_string(),
+    };
+    let bytes = path.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(b) = u8::from_str_radix(&path[i + 1..i + 3], 16) {
+                out.push(b);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::path_of;
+
+    #[test]
+    fn osc7_paths() {
+        assert_eq!(path_of("file://localhost/Users/j/code/acme-api"), "/Users/j/code/acme-api");
+        assert_eq!(path_of("file://mac.local/Users/j/My%20Code"), "/Users/j/My Code");
+        assert_eq!(path_of("/already/a/path"), "/already/a/path");
+        assert_eq!(path_of("file://host/trailing%2"), "/trailing%2");
     }
 }

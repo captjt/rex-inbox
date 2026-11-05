@@ -9,7 +9,17 @@ enum Tab: Hashable {
 struct PanelView: View {
     let store: Store
     @State private var tab: Tab
+    @State private var contentHeight: CGFloat = 320
     @Environment(\.openWindow) private var openWindow
+
+    static let width: CGFloat = 600
+
+    /// As tall as the screen allows below the menu bar, less the header and
+    /// footer, so the panel scrolls only when it truly has to.
+    private var maxListHeight: CGFloat {
+        let screen = NSScreen.main?.visibleFrame.height ?? 900
+        return max(320, screen - 128)
+    }
 
     init(store: Store, tab: Tab = .inbox) {
         self.store = store
@@ -29,8 +39,13 @@ struct PanelView: View {
                         }
                     }
                     .padding(14)
+                    .background(GeometryReader { g in
+                        Color.clear.preference(key: ContentHeight.self, value: g.size.height)
+                    })
                 }
-                .frame(minHeight: 220, maxHeight: 680)
+                .onPreferenceChange(ContentHeight.self) { contentHeight = $0 }
+                // Fit the content; scroll only past the screen's height.
+                .frame(height: min(max(contentHeight, 160), maxListHeight))
             } else {
                 HubDownView(store: store)
             }
@@ -38,7 +53,7 @@ struct PanelView: View {
             Divider()
             footer
         }
-        .frame(width: 540)
+        .frame(width: Self.width)
     }
 
     private var header: some View {
@@ -83,5 +98,12 @@ struct PanelView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+}
+
+private struct ContentHeight: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }

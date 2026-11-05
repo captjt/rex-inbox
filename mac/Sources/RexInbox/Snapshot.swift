@@ -23,7 +23,7 @@ enum Snapshot {
                 : AnyView(PanelView(store: store, tab: tab))
             let host = NSHostingView(rootView: root.background(Color(nsColor: .windowBackgroundColor)))
             let window = NSWindow(
-                contentRect: NSRect(x: -10_000, y: -10_000, width: asWindow ? 980 : 540, height: asWindow ? 700 : 600),
+                contentRect: NSRect(x: -10_000, y: -10_000, width: asWindow ? 980 : PanelView.width, height: asWindow ? 700 : 600),
                 styleMask: [.borderless], backing: .buffered, defer: false
             )
             if let j = args.firstIndex(of: "--appearance"), j + 1 < args.count {

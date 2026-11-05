@@ -243,8 +243,8 @@ struct HostSnapshot {
     /// `None` when only some sessions were fetched.
     all_sessions: Option<BTreeSet<String>>,
     sessions: Vec<SessionSnapshot>,
-    /// `(session, block, records, process)`.
-    statuses: Vec<(String, String, Vec<Record>, Option<Value>)>,
+    /// `(session, block, records, process, pwd)`.
+    statuses: Vec<(String, String, Vec<Record>, Option<Value>, Option<Value>)>,
 }
 
 fn apply_snapshot(m: &mut HostMirror, snap: HostSnapshot) -> BTreeSet<String> {
@@ -255,8 +255,8 @@ fn apply_snapshot(m: &mut HostMirror, snap: HostSnapshot) -> BTreeSet<String> {
     for s in snap.sessions {
         changed.extend(m.apply_session(s).panes);
     }
-    for (sid, bid, records, process) in snap.statuses {
-        m.apply_pane_status(&sid, &bid, records, process.as_ref());
+    for (sid, bid, records, process, pwd) in snap.statuses {
+        m.apply_pane_status(&sid, &bid, records, process.as_ref(), pwd.as_ref());
         changed.insert(bid);
     }
     changed
@@ -312,19 +312,20 @@ async fn snapshot(rex: &Rex, only: Option<(BTreeSet<String>, BTreeSet<String>)>)
                 let _permit = limit.acquire_owned().await;
                 let status = rex.block_call(&sid, &bid, "program_status", &json!({})).await;
                 let process = rex.block_call(&sid, &bid, "process", &json!({})).await.ok();
-                (sid, bid, status, process)
+                let pwd = rex.block_call(&sid, &bid, "pwd", &json!({})).await.ok();
+                (sid, bid, status, process, pwd)
             });
         }
     }
     let mut statuses = Vec::new();
     while let Some(r) = set.join_next().await {
-        let (sid, bid, status, process) = r?;
+        let (sid, bid, status, process, pwd) = r?;
         let Ok(status) = status else { continue };
         let records: Vec<Record> = status["records"]
             .as_array()
             .map(|a| a.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect())
             .unwrap_or_default();
-        statuses.push((sid, bid, records, process));
+        statuses.push((sid, bid, records, process, pwd));
     }
     Ok(HostSnapshot { all_sessions, sessions, statuses })
 }

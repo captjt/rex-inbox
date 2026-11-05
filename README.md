@@ -47,6 +47,10 @@ app shows in the Dock while that window is open.
 `RexInbox --snapshot out.png [--tab agents] [--window]` renders the panel
 (or the window) to a PNG without opening anything on screen.
 
+`scripts/demo.sh up` fills the inbox with a made-up project (a Rex session
+`acme-api` of stand-in agents, and two messages to you) for screenshots;
+`scripts/demo.sh down` removes it.
+
 ## Commands
 
 | | |
