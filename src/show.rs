@@ -75,11 +75,19 @@ fn what(v: &Value) -> String {
     }
 }
 
-pub fn alerts(list: &[Value]) {
-    if list.is_empty() {
+pub fn inbox(alerts_list: &[Value], messages_list: &[Value]) {
+    if alerts_list.is_empty() && messages_list.is_empty() {
         println!("Nothing needs you.");
         return;
     }
+    alerts(alerts_list);
+    if !messages_list.is_empty() {
+        println!("{}", bold("Messages"));
+        message_rows(messages_list, true);
+    }
+}
+
+pub fn alerts(list: &[Value]) {
     for (category, heading) in [("needs_you", "Needs you"), ("failed", "Failed"), ("finished", "Finished")] {
         let rows: Vec<Vec<String>> = list
             .iter()
@@ -153,5 +161,84 @@ pub fn alert_detail(a: &Value) {
     table(&rows.into_iter().filter(|r| !r[1].is_empty()).collect::<Vec<_>>(), "  ");
     if let Some(r) = a["resolved_reason"].as_str() {
         println!("  {}", dim(&format!("resolved {} ago: {r}", age(str(a, "resolved_at")))));
+    }
+}
+
+// ---- messages ----
+
+fn who(addr: &str) -> String {
+    if addr == "me" { "you".into() } else { addr.to_string() }
+}
+
+fn first_line(m: &Value) -> String {
+    let subject = str(m, "subject");
+    let body = str(m, "body").lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
+    let s = if subject.is_empty() { body.to_string() } else { subject.to_string() };
+    if s.chars().count() > 80 { format!("{}…", s.chars().take(79).collect::<String>()) } else { s }
+}
+
+fn message_rows(list: &[Value], to_me: bool) {
+    let rows: Vec<Vec<String>> = list
+        .iter()
+        .map(|m| {
+            let peer = if to_me || str(m, "to_addr") == "me" || m["to_block"].is_null() {
+                format!("from {}", who(str(m, "from_addr")))
+            } else {
+                format!("from {} to {}", who(str(m, "from_addr")), who(str(m, "to_addr")))
+            };
+            vec![format!("#{}", m["id"]), str(m, "status").to_string(), peer, age(str(m, "created_at")), first_line(m)]
+        })
+        .collect();
+    table(&rows, "  ");
+}
+
+pub fn messages(list: &[Value]) {
+    if list.is_empty() {
+        println!("No messages.");
+        return;
+    }
+    message_rows(list, false);
+}
+
+pub fn sent(m: &Value) -> String {
+    let to = who(str(m, "to_addr"));
+    let how = match str(m, "status") {
+        "queued" => "queued; it goes in when the agent is idle",
+        _ => "sent",
+    };
+    format!("#{} to {to}: {how}", m["id"])
+}
+
+pub fn message(m: &Value) {
+    let mut head = format!("#{} from {} to {}", m["id"], who(str(m, "from_addr")), who(str(m, "to_addr")));
+    if let Some(r) = m["reply_to"].as_i64() {
+        head.push_str(&format!(", replying to #{r}"));
+    }
+    println!("{}  {}", bold(&head), dim(&format!("{} ago, {}", age(str(m, "created_at")), str(m, "status"))));
+    if let Some(s) = m["subject"].as_str() {
+        println!("Subject: {s}");
+    }
+    println!();
+    println!("{}", str(m, "body").trim_end());
+}
+
+pub fn thread(m: &Value, thread: &[Value]) {
+    let earlier: Vec<&Value> = thread.iter().filter(|t| t["id"].as_i64() < m["id"].as_i64()).collect();
+    for t in &earlier {
+        println!("{}", dim(&format!("#{} from {}, {} ago: {}", t["id"], who(str(t, "from_addr")), age(str(t, "created_at")), first_line(t))));
+    }
+    if !earlier.is_empty() {
+        println!();
+    }
+    message(m);
+    let later: Vec<&Value> = thread.iter().filter(|t| t["id"].as_i64() > m["id"].as_i64()).collect();
+    if !later.is_empty() {
+        println!();
+        for t in later {
+            println!("{}", dim(&format!("#{} from {}, {} ago: {}", t["id"], who(str(t, "from_addr")), age(str(t, "created_at")), first_line(t))));
+        }
+    }
+    if str(m, "error") != "" {
+        println!("{}", dim(&format!("error: {}", str(m, "error"))));
     }
 }

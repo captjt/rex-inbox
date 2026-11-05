@@ -17,7 +17,7 @@ use tokio::time::{Instant, sleep, sleep_until};
 use crate::api::{Request, Response};
 use crate::mirror::{HostMirror, Pane, Record, SessionSnapshot, Session, TERMINAL, Window};
 use crate::rex::Rex;
-use crate::store::{Alert, AlertFields, Store};
+use crate::store::{Alert, AlertFields, Message, Store};
 use crate::time;
 
 #[derive(Clone, Debug, Serialize)]
@@ -26,6 +26,8 @@ pub enum HubEvent {
     AlertOpened { alert: Alert },
     AlertUpdated { alert: Alert },
     AlertResolved { alert: Alert },
+    MessageNew { message: Message },
+    MessageUpdated { message: Message },
     HostConnected { host: String },
     HostDisconnected { host: String, error: Option<String> },
 }
@@ -49,7 +51,7 @@ impl Shared {
 }
 
 impl Core {
-    fn emit(&self, e: HubEvent) {
+    pub fn emit(&self, e: HubEvent) {
         let _ = self.events.send(e);
     }
 

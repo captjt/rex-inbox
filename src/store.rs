@@ -156,6 +156,73 @@ fn alert_row(r: &Row) -> rusqlite::Result<Alert> {
 /// Live means not resolved: open, dismissed, or snoozed.
 const LIVE: &str = "status != 'resolved'";
 
+#[derive(Clone, Debug, Serialize)]
+pub struct Message {
+    pub id: i64,
+    pub thread_id: i64,
+    pub reply_to: Option<i64>,
+    pub from_addr: String,
+    pub from_host: Option<String>,
+    pub from_session: Option<String>,
+    pub from_block: Option<String>,
+    pub to_addr: String,
+    pub to_host: Option<String>,
+    pub to_session: Option<String>,
+    pub to_block: Option<String>,
+    pub subject: Option<String>,
+    pub body: String,
+    pub status: String,
+    pub created_at: String,
+    pub delivered_at: Option<String>,
+    pub read_at: Option<String>,
+    pub done_at: Option<String>,
+    pub attempts: i64,
+    pub error: Option<String>,
+}
+
+impl Message {
+    pub fn to_me(&self) -> bool {
+        self.to_block.is_none()
+    }
+}
+
+/// One end of a message: a pane, or the person (`addr` = "me", no block).
+#[derive(Clone, Debug, Default)]
+pub struct End {
+    pub addr: String,
+    pub host: Option<String>,
+    pub session: Option<String>,
+    pub block: Option<String>,
+}
+
+const MESSAGE_COLS: &str = "id, thread_id, reply_to, from_addr, from_host, from_session, from_block, to_addr, to_host, \
+     to_session, to_block, subject, body, status, created_at, delivered_at, read_at, done_at, attempts, error";
+
+fn message_row(r: &Row) -> rusqlite::Result<Message> {
+    Ok(Message {
+        id: r.get(0)?,
+        thread_id: r.get(1)?,
+        reply_to: r.get(2)?,
+        from_addr: r.get(3)?,
+        from_host: r.get(4)?,
+        from_session: r.get(5)?,
+        from_block: r.get(6)?,
+        to_addr: r.get(7)?,
+        to_host: r.get(8)?,
+        to_session: r.get(9)?,
+        to_block: r.get(10)?,
+        subject: r.get(11)?,
+        body: r.get(12)?,
+        status: r.get(13)?,
+        created_at: r.get(14)?,
+        delivered_at: r.get(15)?,
+        read_at: r.get(16)?,
+        done_at: r.get(17)?,
+        attempts: r.get(18)?,
+        error: r.get(19)?,
+    })
+}
+
 pub struct Store {
     conn: Connection,
 }
@@ -278,6 +345,116 @@ impl Store {
             params![id, status, until, now()],
         )?;
         self.alert(id)
+    }
+
+    // ---- messages ----
+
+    pub fn message(&self, id: i64) -> Result<Option<Message>> {
+        let sql = format!("SELECT {MESSAGE_COLS} FROM messages WHERE id = ?1");
+        Ok(self.conn.query_row(&sql, [id], message_row).optional()?)
+    }
+
+    fn messages_where(&self, filter: &str, p: impl rusqlite::Params) -> Result<Vec<Message>> {
+        let sql = format!("SELECT {MESSAGE_COLS} FROM messages WHERE {filter} ORDER BY id DESC LIMIT 500");
+        let mut st = self.conn.prepare(&sql)?;
+        Ok(st.query_map(p, message_row)?.collect::<rusqlite::Result<_>>()?)
+    }
+
+    pub fn insert_message(&self, from: &End, to: &End, subject: Option<&str>, body: &str, reply_to: Option<i64>) -> Result<Message> {
+        let id = self.next_id()?;
+        let thread = match reply_to {
+            Some(r) => self.message(r)?.map_or(r, |m| m.thread_id),
+            None => id,
+        };
+        let status = if to.block.is_none() { "unread" } else { "queued" };
+        self.conn.execute(
+            "INSERT INTO messages (id, thread_id, reply_to, from_addr, from_host, from_session, from_block, to_addr, \
+             to_host, to_session, to_block, subject, body, status, created_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            params![
+                id, thread, reply_to, from.addr, from.host, from.session, from.block, to.addr, to.host, to.session,
+                to.block, subject, body, status, now()
+            ],
+        )?;
+        Ok(self.message(id)?.expect("inserted message"))
+    }
+
+    /// Messages to a pane. `unread` keeps those it has not read yet.
+    pub fn messages_to_block(&self, host: &str, block: &str, unread: bool) -> Result<Vec<Message>> {
+        let f = if unread { "to_host = ?1 AND to_block = ?2 AND read_at IS NULL AND status != 'cancelled'" } else { "to_host = ?1 AND to_block = ?2" };
+        self.messages_where(f, params![host, block])
+    }
+
+    /// Messages to the person. `all` adds the ones marked done.
+    pub fn messages_to_me(&self, all: bool) -> Result<Vec<Message>> {
+        let f = if all { "to_block IS NULL" } else { "to_block IS NULL AND status != 'done'" };
+        self.messages_where(f, [])
+    }
+
+    /// Messages sent from a pane.
+    pub fn messages_from_block(&self, host: &str, block: &str) -> Result<Vec<Message>> {
+        self.messages_where("from_host = ?1 AND from_block = ?2", params![host, block])
+    }
+
+    pub fn queued_messages(&self) -> Result<Vec<Message>> {
+        let sql = format!("SELECT {MESSAGE_COLS} FROM messages WHERE status = 'queued' ORDER BY id");
+        let mut st = self.conn.prepare(&sql)?;
+        Ok(st.query_map([], message_row)?.collect::<rusqlite::Result<_>>()?)
+    }
+
+    pub fn thread(&self, thread_id: i64) -> Result<Vec<Message>> {
+        let sql = format!("SELECT {MESSAGE_COLS} FROM messages WHERE thread_id = ?1 ORDER BY id");
+        let mut st = self.conn.prepare(&sql)?;
+        Ok(st.query_map([thread_id], message_row)?.collect::<rusqlite::Result<_>>()?)
+    }
+
+    fn set_message(&self, id: i64, sql: &str, p: &[&dyn rusqlite::ToSql]) -> Result<Option<Message>> {
+        let mut all: Vec<&dyn rusqlite::ToSql> = vec![&id];
+        all.extend_from_slice(p);
+        self.conn.execute(&format!("UPDATE messages SET {sql} WHERE id = ?1"), all.as_slice())?;
+        self.message(id)
+    }
+
+    pub fn mark_delivered(&self, id: i64, read: bool) -> Result<Option<Message>> {
+        let t = now();
+        let read_at = if read { Some(t.clone()) } else { None };
+        self.set_message(
+            id,
+            "status = 'delivered', delivered_at = COALESCE(delivered_at, ?2), read_at = COALESCE(read_at, ?3), \
+             attempts = attempts + 1, error = NULL",
+            &[&t, &read_at],
+        )
+    }
+
+    /// The reader opened it: a pane's message counts as delivered too, so
+    /// it is never pasted afterwards; the person's goes from unread to read.
+    pub fn mark_read(&self, m: &Message) -> Result<Option<Message>> {
+        if m.read_at.is_some() {
+            return Ok(Some(m.clone()));
+        }
+        if m.to_me() {
+            let t = now();
+            let status = if m.status == "unread" { "read" } else { m.status.as_str() };
+            self.set_message(m.id, "status = ?2, read_at = ?3", &[&status, &t])
+        } else if m.status == "queued" {
+            self.mark_delivered(m.id, true)
+        } else {
+            let t = now();
+            self.set_message(m.id, "read_at = ?2", &[&t])
+        }
+    }
+
+    pub fn mark_failed(&self, id: i64, error: &str) -> Result<Option<Message>> {
+        self.set_message(id, "status = 'failed', error = ?2", &[&error])
+    }
+
+    pub fn note_attempt(&self, id: i64, error: &str) -> Result<Option<Message>> {
+        self.set_message(id, "attempts = attempts + 1, error = ?2", &[&error])
+    }
+
+    pub fn mark_done(&self, id: i64) -> Result<Option<Message>> {
+        let t = now();
+        self.set_message(id, "status = CASE WHEN to_block IS NULL THEN 'done' ELSE 'cancelled' END, done_at = ?2", &[&t])
     }
 
     pub fn conn(&self) -> &Connection {

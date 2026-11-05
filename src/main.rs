@@ -1,9 +1,11 @@
 //! rex-inbox: an inbox and message bus for coding agents running in Rex.
 
+mod address;
 mod agents;
 mod api;
 mod deliver;
 mod hub;
+mod messages;
 mod methods;
 mod mirror;
 mod notify;
@@ -48,6 +50,63 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Send a message to an agent's pane, or to you (--to me).
+    Send {
+        /// `me`, a pane name (`reviewer`), `session/pane`, or a block id.
+        #[arg(long)]
+        to: String,
+        #[arg(long, short)]
+        subject: Option<String>,
+        /// Send as the person, even from an agent's pane.
+        #[arg(long)]
+        as_me: bool,
+        /// The message; `-` (or nothing, when piped) reads stdin.
+        body: Option<String>,
+    },
+    /// Answer a message: it goes to the other side of that conversation.
+    Reply {
+        id: i64,
+        #[arg(long)]
+        as_me: bool,
+        /// The answer; `-` (or nothing, when piped) reads stdin.
+        body: Option<String>,
+    },
+    /// Messages to this pane (or to you, outside an agent's pane).
+    Inbox {
+        /// Include read messages and the ones this pane sent.
+        #[arg(long)]
+        all: bool,
+        #[arg(long)]
+        as_me: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Read a message and its thread, and mark it read.
+    Read {
+        id: i64,
+        #[arg(long)]
+        as_me: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Wait for the next message to this pane, print it, and mark it read.
+    Wait {
+        /// Only a message in the thread of this message, such as a reply.
+        #[arg(long)]
+        thread: Option<i64>,
+        /// Give up after this many seconds (exit 2).
+        #[arg(long)]
+        timeout: Option<f64>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// This pane's address, for others to send to.
+    Whoami {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Name this pane, so others can send to it by name.
+    Name { name: String },
     /// Show one item.
     Show {
         id: i64,
@@ -56,7 +115,8 @@ enum Cmd {
     },
     /// Bring an item's pane to the front in Rex.
     Open { id: i64 },
-    /// Dismiss an item until its pane's status changes.
+    /// Dismiss an alert until its pane's status changes, file a message, or
+    /// cancel a message still waiting for its pane.
     Done { id: i64 },
     /// Hide an item for a while, such as 30m, 2h, or 1d.
     Snooze { id: i64, duration: String },
@@ -78,6 +138,32 @@ fn print_json(v: &Value) -> Result<()> {
     Ok(())
 }
 
+/// Where the CLI runs, from the variables Rex sets in every pane.
+fn caller(as_me: bool) -> Value {
+    json!({
+        "host": "local",
+        "session_id": std::env::var("REX_SESSION").ok(),
+        "block_id": std::env::var("REX_BLOCK").ok(),
+        "as_me": as_me,
+    })
+}
+
+fn body(arg: Option<String>) -> Result<String> {
+    use std::io::IsTerminal;
+    match arg.as_deref() {
+        Some("-") => read_stdin(),
+        Some(b) => Ok(b.to_string()),
+        None if !std::io::stdin().is_terminal() => read_stdin(),
+        None => anyhow::bail!("give the message as an argument, or - to read it from stdin"),
+    }
+}
+
+fn read_stdin() -> Result<String> {
+    let mut s = String::new();
+    std::io::stdin().read_to_string(&mut s)?;
+    Ok(s)
+}
+
 fn list(v: &Value) -> Vec<Value> {
     v.as_array().cloned().unwrap_or_default()
 }
@@ -95,9 +181,51 @@ async fn run(cli: Cli) -> Result<()> {
     match cli.cmd {
         Cmd::Hub => hub::run(paths::socket(), paths::db(), vec![rex::Rex::local()]).await,
         Cmd::Ls { all, history, json } => {
-            let v = api::call("alerts.list", json!({ "all": all || history, "history": history }))?;
-            if json { print_json(&v) } else { Ok(show::alerts(&list(&v))) }
+            let v = api::call("inbox", json!({ "all": all, "history": history }))?;
+            if json {
+                return print_json(&v);
+            }
+            show::inbox(&list(&v["alerts"]), &list(&v["messages"]));
+            Ok(())
         }
+        Cmd::Send { to, subject, as_me, body: b } => {
+            let v = api::call(
+                "messages.send",
+                json!({ "caller": caller(as_me), "to": to, "subject": subject, "body": body(b)? }),
+            )?;
+            println!("{}", show::sent(&v));
+            Ok(())
+        }
+        Cmd::Reply { id, as_me, body: b } => {
+            let v = api::call("messages.reply", json!({ "caller": caller(as_me), "id": id, "body": body(b)? }))?;
+            println!("{}", show::sent(&v));
+            Ok(())
+        }
+        Cmd::Inbox { all, as_me, json } => {
+            let v = api::call("messages.list", json!({ "caller": caller(as_me), "all": all }))?;
+            if json { print_json(&v) } else { Ok(show::messages(&list(&v))) }
+        }
+        Cmd::Read { id, as_me, json } => {
+            let v = api::call("messages.read", json!({ "caller": caller(as_me), "id": id }))?;
+            if json { print_json(&v) } else { Ok(show::thread(&v["message"], &list(&v["thread"]))) }
+        }
+        Cmd::Wait { thread, timeout, json } => {
+            let v = api::call("messages.wait", json!({ "caller": caller(false), "thread": thread, "timeout": timeout }))?;
+            if v["timeout"] == Value::Bool(true) {
+                eprintln!("rex-inbox: no message after {}s", timeout.unwrap_or(0.0));
+                std::process::exit(2);
+            }
+            if json { print_json(&v) } else { Ok(show::message(&v["message"])) }
+        }
+        Cmd::Whoami { json } => {
+            let v = api::call("whoami", json!({ "caller": caller(false) }))?;
+            if json {
+                return print_json(&v);
+            }
+            println!("{}", v["address"].as_str().unwrap_or("?"));
+            Ok(())
+        }
+        Cmd::Name { name } => api::call("name", json!({ "caller": caller(false), "name": name })).map(|_| ()),
         Cmd::Agents { all, json } => {
             let v = api::call("panes.list", json!({ "all": all }))?;
             if json { print_json(&v) } else { Ok(show::panes(&list(&v))) }
@@ -107,13 +235,14 @@ async fn run(cli: Cli) -> Result<()> {
             if json {
                 return print_json(&v);
             }
-            if v["type"] == "alert" {
-                show::alert_detail(&v["alert"]);
+            match v["type"].as_str() {
+                Some("alert") => show::alert_detail(&v["alert"]),
+                _ => show::thread(&v["message"], &list(&v["thread"])),
             }
             Ok(())
         }
         Cmd::Open { id } => api::call("open", json!({ "id": id })).map(|_| ()),
-        Cmd::Done { id } => api::call("alerts.dismiss", json!({ "id": id })).map(|_| ()),
+        Cmd::Done { id } => api::call("done", json!({ "id": id })).map(|_| ()),
         Cmd::Snooze { id, duration } => api::call("alerts.snooze", json!({ "id": id, "for": duration })).map(|_| ()),
         Cmd::Reopen { id } => api::call("alerts.reopen", json!({ "id": id })).map(|_| ()),
         Cmd::Status { json } => {

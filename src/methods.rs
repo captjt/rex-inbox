@@ -91,13 +91,35 @@ pub async fn dispatch(shared: &Shared, method: &str, params: Value) -> Result<Va
             Ok(serde_json::to_value(core.store.list_alerts(all, history, limit)?)?)
         }
 
+        "inbox" => {
+            let all = params["all"].as_bool().unwrap_or(false);
+            let history = params["history"].as_bool().unwrap_or(false);
+            let core = shared.lock();
+            let alerts = core.store.list_alerts(all || history, history, 200)?;
+            let messages = core.store.messages_to_me(history)?;
+            Ok(json!({ "alerts": alerts, "messages": messages }))
+        }
+
         "show" => {
             let id = id(&params)?;
             let core = shared.lock();
             if let Some(a) = core.store.alert(id)? {
                 return Ok(json!({ "type": "alert", "alert": a }));
             }
+            if let Some(m) = core.store.message(id)? {
+                let thread = core.store.thread(m.thread_id)?;
+                return Ok(json!({ "type": "message", "message": m, "thread": thread }));
+            }
             bail!("nothing numbered {id}")
+        }
+
+        // Done with an item: dismiss an alert, file a message to you, or
+        // cancel a message still waiting for its pane.
+        "done" => {
+            let id = id(&params)?;
+            let is_alert = shared.lock().store.alert(id)?.is_some();
+            let method = if is_alert { "alerts.dismiss" } else { "messages.done" };
+            Box::pin(dispatch(shared, method, params)).await
         }
 
         "alerts.dismiss" | "alerts.reopen" | "alerts.snooze" => {
@@ -141,13 +163,28 @@ pub async fn dispatch(shared: &Shared, method: &str, params: Value) -> Result<Va
             let id = id(&params)?;
             let (rex, session, block, window) = {
                 let core = shared.lock();
-                let a = core.store.alert(id)?.ok_or_else(|| anyhow!("nothing numbered {id}"))?;
-                let window = core.pane(&a.host, &a.block_id).and_then(|p| p.window_id.clone()).or(a.window_id);
-                (core.rex(&a.host)?, a.session_id, a.block_id, window)
+                let (host, session, block, window) = if let Some(a) = core.store.alert(id)? {
+                    (a.host, a.session_id, a.block_id, a.window_id)
+                } else if let Some(m) = core.store.message(id)? {
+                    // The agent's pane: the sender's, or the recipient's for a message from you.
+                    match (m.from_host, m.from_session, m.from_block, m.to_host, m.to_session, m.to_block) {
+                        (Some(h), Some(s), Some(b), ..) | (.., Some(h), Some(s), Some(b)) => (h, s, b, None),
+                        _ => bail!("message {id} has no pane"),
+                    }
+                } else {
+                    bail!("nothing numbered {id}")
+                };
+                let window = core.pane(&host, &block).and_then(|p| p.window_id.clone()).or(window);
+                if core.pane(&host, &block).is_none() {
+                    bail!("that pane is gone");
+                }
+                (core.rex(&host)?, session, block, window)
             };
             rex.focus(&session, &block, window.as_deref()).await?;
             Ok(json!({ "session_id": session, "block_id": block }))
         }
+
+        m if m.starts_with("messages.") || m == "whoami" || m == "name" => crate::messages::dispatch(shared, m, &params).await,
 
         other => bail!("unknown method {other}"),
     }
