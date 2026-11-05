@@ -115,9 +115,11 @@ impl Rex {
         self.run(&args, None).await.map(|_| ())
     }
 
-    /// The visible screen of a terminal, as plain text.
-    pub async fn capture(&self, session: &str, block: &str) -> Result<String> {
-        self.run(&["capture", "-s", session, "-b", block], None).await
+    /// The last `lines` lines of a terminal, as plain text.
+    pub async fn capture(&self, session: &str, block: &str, lines: usize) -> Result<String> {
+        let out = self.run(&["capture", "-s", session, "-b", block, "--trim"], None).await?;
+        let all: Vec<&str> = out.lines().collect();
+        Ok(all[all.len().saturating_sub(lines)..].join("\n"))
     }
 
     /// `rex focus` plus the app's `session.select`, so the pane is in front.

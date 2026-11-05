@@ -3,6 +3,7 @@
 mod address;
 mod agents;
 mod api;
+mod approve;
 mod deliver;
 mod hub;
 mod messages;
@@ -110,9 +111,16 @@ enum Cmd {
     /// Show one item.
     Show {
         id: i64,
+        /// Also print the bottom of the item's pane, such as the prompt itself.
+        #[arg(long)]
+        screen: bool,
         #[arg(long)]
         json: bool,
     },
+    /// Approve a permission prompt, if it is still the one the item shows.
+    Approve { id: i64 },
+    /// Deny a permission prompt, if it is still the one the item shows.
+    Deny { id: i64 },
     /// Bring an item's pane to the front in Rex.
     Open { id: i64 },
     /// Dismiss an alert until its pane's status changes, file a message, or
@@ -162,6 +170,17 @@ fn read_stdin() -> Result<String> {
     let mut s = String::new();
     std::io::stdin().read_to_string(&mut s)?;
     Ok(s)
+}
+
+/// Approve or deny; exit 3 if the prompt is still up afterwards.
+fn answer(method: &str, id: i64) -> Result<()> {
+    let v = api::call(method, json!({ "id": id }))?;
+    let done = if method == "approve" { "approved" } else { "denied" };
+    println!("#{id} {done}; the pane is now {}", v["now"].as_str().unwrap_or("?"));
+    if v["cleared"] != Value::Bool(true) {
+        std::process::exit(3);
+    }
+    Ok(())
 }
 
 fn list(v: &Value) -> Vec<Value> {
@@ -230,8 +249,11 @@ async fn run(cli: Cli) -> Result<()> {
             let v = api::call("panes.list", json!({ "all": all }))?;
             if json { print_json(&v) } else { Ok(show::panes(&list(&v))) }
         }
-        Cmd::Show { id, json } => {
-            let v = api::call("show", json!({ "id": id }))?;
+        Cmd::Show { id, screen, json } => {
+            let mut v = api::call("show", json!({ "id": id }))?;
+            if screen && v["type"] == "alert" {
+                v["screen"] = api::call("screen", json!({ "id": id }))?["text"].clone();
+            }
             if json {
                 return print_json(&v);
             }
@@ -239,8 +261,14 @@ async fn run(cli: Cli) -> Result<()> {
                 Some("alert") => show::alert_detail(&v["alert"]),
                 _ => show::thread(&v["message"], &list(&v["thread"])),
             }
+            if let Some(text) = v["screen"].as_str() {
+                println!("\n{}", show::dim("── pane ──"));
+                println!("{text}");
+            }
             Ok(())
         }
+        Cmd::Approve { id } => answer("approve", id),
+        Cmd::Deny { id } => answer("deny", id),
         Cmd::Open { id } => api::call("open", json!({ "id": id })).map(|_| ()),
         Cmd::Done { id } => api::call("done", json!({ "id": id })).map(|_| ()),
         Cmd::Snooze { id, duration } => api::call("alerts.snooze", json!({ "id": id, "for": duration })).map(|_| ()),

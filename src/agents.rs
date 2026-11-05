@@ -13,3 +13,16 @@ pub fn display(app: &str) -> &str {
         other => other,
     }
 }
+
+/// Keys that answer a permission prompt: `(approve, deny)`. Only agents whose
+/// prompt was checked live get keys; the rest can only be opened.
+///
+/// Claude Code (2.1.318): "Do you want to proceed?" with "1. Yes" first and
+/// "Esc to cancel". A digit picks its option outright, whatever is
+/// highlighted, so approve is `1`, never Enter.
+pub fn prompt_keys(app: &str) -> Option<(&'static [&'static str], &'static [&'static str])> {
+    match app {
+        "claude-code" => Some((&["1"], &["escape"])),
+        _ => None,
+    }
+}

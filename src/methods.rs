@@ -184,6 +184,13 @@ pub async fn dispatch(shared: &Shared, method: &str, params: Value) -> Result<Va
             Ok(json!({ "session_id": session, "block_id": block }))
         }
 
+        "approve" | "deny" => crate::approve::answer(shared, id(&params)?, method == "approve", params["seen"].as_str()).await,
+
+        "screen" => {
+            let lines = params["lines"].as_u64().unwrap_or(30) as usize;
+            Ok(json!({ "text": crate::approve::screen(shared, id(&params)?, lines).await? }))
+        }
+
         m if m.starts_with("messages.") || m == "whoami" || m == "name" => crate::messages::dispatch(shared, m, &params).await,
 
         other => bail!("unknown method {other}"),
