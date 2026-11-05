@@ -101,28 +101,40 @@ An alert for a `blocked` + `permission` record offers Approve and Deny.
 
 ## Surfaces
 
-1. `rex-inbox ls | show N | open N | approve N | deny N | done N | snooze N 1h`.
-2. A TUI (`rex-inbox tui`) that runs in a Rex pane: on the Mac and, through
-   the Rex iOS app, on the phone.
-3. Mac notifications for new **needs you** items and messages to `me`
-   (rate-limited).
-4. The menu bar app moves here from rex-reviewer, as "Rex Inbox", with
-   notification actions for Approve and Deny.
-5. Native Mac and iOS apps, on the HTTP API.
+rex-inbox stands alone: it doesn't change or depend on rex-reviewer or any
+other tool. There is no TUI.
+
+1. **Rex Inbox.app** (`mac/`), a SwiftUI menu bar app that talks to the hub
+   over its socket.
+   - The tray turns orange with a count while something needs you.
+   - The Inbox tab has Needs you (Approve, Deny, Open, Snooze, Done),
+     Messages (reply inline), Failed, and Finished.
+   - The Agents tab lists every agent pane by session: click one to open
+     it in Rex, or message it.
+   - Notifications carry the answer: Approve and Deny for a Claude Code
+     prompt, Reply for a message, Open for the rest. They are withdrawn once
+     the item no longer needs you.
+   - While the app is connected, the hub's own osascript notifications stay
+     quiet.
+2. The `rex-inbox` CLI, for agents and scripts, and for you in any terminal.
+3. Later: native iOS app on the HTTP API, and Rex's own push when it ships.
 
 ## Build steps
 
-Each step is usable on its own. Steps 1 to 3 and most of 4 and 5 were built
-and tested on 2026-11-05: two Haiku agents traded messages through the hub,
-and a real Claude Code prompt was approved and another denied.
+Each step is usable on its own.
 
-1. Hub, mirror, alerts, store, `ls` (local host).
-2. Messages: `send`, `inbox`, `read`, `reply`, `wait`, delivery into idle agent panes, `me`.
-3. Guarded approve and deny; `open` (focus the pane in the Rex app).
-4. Mac notifications, LaunchAgent (`up`, `down`), TUI.
-5. Skill for agents (`agents/skills/rex-inbox` in dotfiles) and the allowlist.
-6. Menu bar move from rex-reviewer; rex-reviewer feeds its attention items in.
-7. Other hosts: a watcher per `rex hosts` entry and the `inbox_rpc` action.
+1. Done: hub, mirror, alerts, store, `ls` (local host).
+2. Done: messages (`send`, `inbox`, `read`, `reply`, `wait`), delivered into idle agent panes, and `me`.
+3. Done: guarded approve and deny; `open`.
+4. Done: notifications, LaunchAgent (`up`, `down`, `logs`), and the agent skill (in dotfiles, `agents/skills/rex-inbox`).
+5. Done: the Mac menu bar app.
+6. Codex's prompt keys, checked against a live prompt.
+7. Other hosts: a watcher per `rex hosts` entry, and the `inbox_rpc` action.
+8. An HTTP and server-sent events listener, and a native iOS app.
+
+Tested on 2026-11-05: two Haiku agents traded messages through the hub, a
+real Claude Code prompt was approved and another denied, and a prompt was
+approved from the app.
 
 ## Known gaps
 
@@ -133,5 +145,5 @@ and a real Claude Code prompt was approved and another denied.
   two-second settle makes this unlikely, but not impossible.
 - Default pane labels are all `shell`. Use `rex-inbox name` (or
   `rex-agent start NAME`) for panes others should reach.
-- Notifications use osascript, so they come from Script Editor and clicking
-  does nothing. terminal-notifier, or the menu bar app later, fixes that.
+- Without the app running, notifications fall back to osascript: they come
+  from Script Editor, and clicking does nothing.

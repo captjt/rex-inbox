@@ -26,9 +26,24 @@ $ rex-inbox approve 17
 ```sh
 cargo install --path .
 rex-inbox up          # the hub, as a LaunchAgent (logs: rex-inbox logs)
+mac/build.sh          # Rex Inbox.app, in ~/Applications
 ```
 
 macOS only for now. The hub talks to Rex only through the `rex` CLI.
+
+## The Mac app
+
+A tray in the menu bar turns orange with a count while something needs
+you.
+
+- **Inbox:** approve or deny a prompt, reply to a message, open the pane in
+  Rex, snooze, or mark done.
+- **Agents:** every agent pane by session; click one to open it, or
+  message it.
+- **Notifications** carry the answer: Approve and Deny, or Reply.
+
+`RexInbox --snapshot out.png [--tab agents]` renders the panel to a PNG
+without opening it.
 
 ## Commands
 

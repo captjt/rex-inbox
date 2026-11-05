@@ -79,7 +79,7 @@ pub async fn run(shared: Shared) {
                     };
                     let place = crate::show::place(&serde_json::to_value(&alert).unwrap_or_default());
                     let body = [alert.title.as_deref(), alert.msg.as_deref()].into_iter().flatten().collect::<Vec<_>>().join(": ");
-                    post(&limiter, Note { id: alert.id, title, subtitle: format!("#{} · {place}", alert.id), body }).await;
+                    post(&shared, &limiter, Note { id: alert.id, title, subtitle: format!("#{} · {place}", alert.id), body }).await;
                 });
             }
             HubEvent::MessageNew { message } if message.to_me() => {
@@ -94,14 +94,18 @@ pub async fn run(shared: Shared) {
                     subtitle: format!("#{} · reply with rex-inbox reply {}", message.id, message.id),
                     body,
                 };
-                post(&limiter, note).await;
+                post(&shared, &limiter, note).await;
             }
             _ => {}
         }
     }
 }
 
-async fn post(limiter: &Mutex<Limiter>, mut n: Note) {
+async fn post(shared: &Shared, limiter: &Mutex<Limiter>, mut n: Note) {
+    // An app is showing its own notifications.
+    if shared.lock().notifiers > 0 {
+        return;
+    }
     let Some(held) = limiter.lock().unwrap_or_else(|e| e.into_inner()).admit() else { return };
     if held > 0 {
         n.subtitle.push_str(&format!(" (+{held} more in rex-inbox ls)"));

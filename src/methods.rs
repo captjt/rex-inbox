@@ -80,6 +80,7 @@ pub async fn dispatch(shared: &Shared, method: &str, params: Value) -> Result<Va
                 "pid": std::process::id(),
                 "hosts": hosts,
                 "open_alerts": open,
+                "notifiers": core.notifiers,
             }))
         }
 
@@ -179,6 +180,18 @@ pub async fn dispatch(shared: &Shared, method: &str, params: Value) -> Result<Va
                     bail!("that pane is gone");
                 }
                 (core.rex(&host)?, session, block, window)
+            };
+            rex.focus(&session, &block, window.as_deref()).await?;
+            Ok(json!({ "session_id": session, "block_id": block }))
+        }
+
+        "panes.open" => {
+            let host = params["host"].as_str().unwrap_or("local").to_string();
+            let block = params["block_id"].as_str().ok_or_else(|| anyhow!("block_id is required"))?.to_string();
+            let (rex, session, window) = {
+                let core = shared.lock();
+                let p = core.pane(&host, &block).ok_or_else(|| anyhow!("that pane is gone"))?;
+                (core.rex(&host)?, p.session_id.clone(), p.window_id.clone())
             };
             rex.focus(&session, &block, window.as_deref()).await?;
             Ok(json!({ "session_id": session, "block_id": block }))

@@ -38,6 +38,9 @@ pub struct Core {
     pub rexes: BTreeMap<String, Rex>,
     pub events: broadcast::Sender<HubEvent>,
     pub started_at: String,
+    /// Apps watching with `notifier: true` post notifications themselves,
+    /// so the hub's own stay quiet while any is connected.
+    pub notifiers: usize,
 }
 
 #[derive(Clone)]
@@ -422,6 +425,7 @@ pub async fn run(socket: PathBuf, db: PathBuf, hosts: Vec<Rex>) -> Result<()> {
         rexes: hosts.iter().map(|r| (r.name().to_string(), r.clone())).collect(),
         events,
         started_at: time::now(),
+        notifiers: 0,
     })));
     let listener = bind(&socket).await?;
     say!("hub listening on {}", socket.display());
@@ -476,18 +480,36 @@ async fn serve_conn(shared: Shared, stream: UnixStream) -> Result<()> {
         std::process::exit(0);
     }
     if req.method == "watch" {
+        struct Notifier(Option<Shared>);
+        impl Drop for Notifier {
+            fn drop(&mut self) {
+                if let Some(s) = &self.0 {
+                    s.lock().notifiers -= 1;
+                }
+            }
+        }
+        let _notifier = if req.params["notifier"].as_bool() == Some(true) {
+            shared.lock().notifiers += 1;
+            Notifier(Some(shared.clone()))
+        } else {
+            Notifier(None)
+        };
         let mut rx = shared.lock().events.subscribe();
         w.write_all(format!("{}\n", serde_json::to_string(&Response::ok(json!({ "watching": true })))?).as_bytes()).await?;
         loop {
-            match rx.recv().await {
-                Ok(ev) => {
-                    let line = format!("{}\n", serde_json::to_string(&ev)?);
-                    if w.write_all(line.as_bytes()).await.is_err() {
-                        return Ok(());
+            tokio::select! {
+                ev = rx.recv() => match ev {
+                    Ok(ev) => {
+                        let line = format!("{}\n", serde_json::to_string(&ev)?);
+                        if w.write_all(line.as_bytes()).await.is_err() {
+                            return Ok(());
+                        }
                     }
-                }
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(_) => return Ok(()),
+                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(_) => return Ok(()),
+                },
+                // The watcher hung up: stop now, not at the next event.
+                line = lines.next_line() => if !matches!(line, Ok(Some(_))) { return Ok(()) },
             }
         }
     }
