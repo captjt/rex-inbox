@@ -33,9 +33,8 @@ func stateColor(_ state: String?) -> Color {
     }
 }
 
-/// A rounded card with an optional colored edge.
+/// A rounded card.
 struct Card<Content: View>: View {
-    var tint: Color? = nil
     @ViewBuilder var content: Content
     @State private var hover = false
 
@@ -48,14 +47,6 @@ struct Card<Content: View>: View {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(Color.primary.opacity(hover ? 0.075 : 0.045))
             )
-            .overlay(alignment: .leading) {
-                if let tint {
-                    RoundedRectangle(cornerRadius: 1.5)
-                        .fill(tint)
-                        .frame(width: 3)
-                        .padding(.vertical, 10)
-                }
-            }
             .onHover { hover = $0 }
     }
 }
@@ -135,7 +126,7 @@ struct AlertCard: View {
 
     var body: some View {
         let busy = store.busy.contains(alert.id)
-        Card(tint: alert.color) {
+        Card {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Image(systemName: alert.symbol).foregroundStyle(alert.color)
@@ -237,7 +228,7 @@ struct MessageCard: View {
     var body: some View {
         let busy = store.busy.contains(message.id)
         let unread = message.status == "unread"
-        Card(tint: unread ? .accentColor : nil) {
+        Card {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Image(systemName: unread ? "envelope.badge.fill" : "envelope.open")
@@ -323,7 +314,7 @@ struct AgentCard: View {
     }
 
     var body: some View {
-        Card(tint: pane.state == "blocked" || pane.state == "error" ? stateColor(pane.state) : nil) {
+        Card {
             VStack(alignment: .leading, spacing: 7) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(pane.name).font(.headline)
