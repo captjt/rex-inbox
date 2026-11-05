@@ -18,7 +18,7 @@ easy to drop when Rex ships its own.
 | Language | Rust, one binary (`rex-inbox`): hub daemon, CLI, and later the TUI. |
 | Platform | macOS first, local only. No cross-compiling until this is proven. |
 | Machines | One hub on the home Rex server. Every record carries a `host` so other Rex hosts can be added later without a schema change. |
-| Phone push | None for now. Mac notifications, plus the Rex iOS app over Rex's own Tailscale once that's on. |
+| Phone | A web app the hub serves, added to the Home Screen, published on the tailnet with `tailscale serve` (option B). Web Push for notifications. No Apple developer account, so no native iOS app. |
 | Approvals | Guarded one-tap approve and deny (see below). |
 | Repo | On GitHub at captjt/rex-inbox. |
 
@@ -117,7 +117,34 @@ other tool. There is no TUI.
    - While the app is connected, the hub's own osascript notifications stay
      quiet.
 2. The `rex-inbox` CLI, for agents and scripts, and for you in any terminal.
-3. Later: native iOS app on the HTTP API, and Rex's own push when it ships.
+3. **The phone web app** (`web/`, built into the binary). See "Phone" below.
+4. Later: Rex's own push for program status, when it ships.
+
+## Phone
+
+- **Reaching the hub.** The hub also listens on `127.0.0.1:7430` (set
+  `REX_INBOX_HTTP`, or `off`). `tailscale serve --bg 7430` publishes it at
+  `https://<mac>.<tailnet>.ts.net` with a real certificate, and adds the
+  caller's `Tailscale-User-Login` header.
+- **Who it answers.** Only the Mac's own Tailscale user, read from
+  `tailscale status --json` (`REX_INBOX_OWNER` overrides). Requests must
+  use the hub's own host names: loopback, or the tailnet name. That blocks
+  DNS rebinding. Writes need an `X-Rex-Inbox` header and a same-site
+  `Origin`, which blocks other sites from posting.
+- **API.** `POST /api/call` runs the socket's methods, always as the person,
+  from an allowlist: no naming panes, no focusing them, no stopping the
+  hub. `GET /api/events` streams the hub's events (server-sent events).
+- **The app.** Inbox and Agents tabs. Approve and Deny (with the same
+  guard as the Mac), Reply, Snooze, Done, and Show pane (the last lines of
+  a pane's screen) for any item or agent.
+- **Notifications.** Web Push (RFC 8291 encryption, RFC 8292 VAPID).
+  - The hub's VAPID key lives in `vapid.key` in the state dir; devices are
+    in the `push_subs` table.
+  - Pushes cover needs you, failed, and messages to you, after the same
+    two-second grace. Tapping one opens that item.
+  - iOS shows web notifications without action buttons, so you approve in
+    the app.
+
 
 ## Build steps
 
@@ -128,9 +155,9 @@ Each step is usable on its own.
 3. Done: guarded approve and deny; `open`.
 4. Done: notifications, LaunchAgent (`up`, `down`, `logs`), and the agent skill (in dotfiles, `agents/skills/rex-inbox`).
 5. Done: the Mac menu bar app.
-6. Codex's prompt keys, checked against a live prompt.
-7. Other hosts: a watcher per `rex hosts` entry, and the `inbox_rpc` action.
-8. An HTTP and server-sent events listener, and a native iOS app.
+6. Done: the phone web app, HTTP API, and Web Push (waiting on Tailscale on the Mac to try on a phone).
+7. Codex's prompt keys, checked against a live prompt.
+8. Other hosts: a watcher per `rex hosts` entry, and the `inbox_rpc` action.
 
 Tested on 2026-11-05: two Haiku agents traded messages through the hub, a
 real Claude Code prompt was approved and another denied, and a prompt was
@@ -138,6 +165,8 @@ approved from the app.
 
 ## Known gaps
 
+- The phone can't open a pane in the Rex iOS app (no documented deep link),
+  so "Show pane" shows its screen instead.
 - Claude Code's folder-trust prompt at startup reports no status, so it
   never reaches the inbox.
 - Codex's approval keys aren't verified yet, so Codex prompts get Open only.

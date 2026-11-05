@@ -62,6 +62,17 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS messages_to ON messages(to_addr, status);
 CREATE INDEX IF NOT EXISTS messages_block ON messages(to_host, to_block, status);
 
+-- Devices that receive Web Push (the web app on a phone).
+CREATE TABLE IF NOT EXISTS push_subs (
+  endpoint TEXT PRIMARY KEY,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  agent TEXT,
+  created_at TEXT NOT NULL,
+  last_ok TEXT,
+  failures INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS log (
   id INTEGER PRIMARY KEY,
   at TEXT NOT NULL,
@@ -236,6 +247,10 @@ impl Store {
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;")?;
         conn.execute_batch(SCHEMA)?;
         Ok(Store { conn })
+    }
+
+    pub(crate) fn conn_ref(&self) -> &Connection {
+        &self.conn
     }
 
     /// The next id, shared by alerts and messages so `show N` is never ambiguous.

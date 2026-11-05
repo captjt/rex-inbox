@@ -51,6 +51,24 @@ app shows in the Dock while that window is open.
 `acme-api` of stand-in agents, and two messages to you) for screenshots;
 `scripts/demo.sh down` removes it.
 
+## On your phone
+
+The hub also serves a web app. Publish it on your tailnet, then add it to
+your Home Screen for notifications. It needs no App Store and no
+developer account.
+
+```sh
+brew install --cask tailscale   # sign in; same tailnet as the phone
+# Tailscale admin console: turn on MagicDNS and HTTPS certificates
+tailscale serve --bg 7430
+rex-inbox web                   # prints the phone's address
+```
+
+Open that address in Safari, choose Share › Add to Home Screen, open it
+from the Home Screen, and tap Turn On. Only your own Tailscale user gets
+in. Web notifications on iOS have no buttons, so tap one, then approve in
+the app.
+
 ## Commands
 
 | | |
@@ -65,6 +83,7 @@ app shows in the Dock while that window is open.
 | `reply N TEXT\|-` | Answer a message; it goes to the other side. |
 | `inbox`, `read N`, `wait [--thread N] [--timeout S]` | An agent's own messages. |
 | `name NAME`, `whoami` | Name this pane so others can reach it. |
+| `web` | The phone web app's address, and how to publish it. |
 | `status`, `watch`, `up`, `down`, `logs` | The hub. |
 
 ## How it works

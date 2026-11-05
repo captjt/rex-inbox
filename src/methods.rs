@@ -81,6 +81,12 @@ pub async fn dispatch(shared: &Shared, method: &str, params: Value) -> Result<Va
                 "hosts": hosts,
                 "open_alerts": open,
                 "notifiers": core.notifiers,
+                "web": {
+                    "listen": crate::web::addr().map(|a| a.to_string()),
+                    "owner": core.owner,
+                    "url": core.web_url,
+                    "devices": core.store.push_subs().map(|v| v.len()).unwrap_or(0),
+                },
             }))
         }
 
@@ -195,6 +201,18 @@ pub async fn dispatch(shared: &Shared, method: &str, params: Value) -> Result<Va
             };
             rex.focus(&session, &block, window.as_deref()).await?;
             Ok(json!({ "session_id": session, "block_id": block }))
+        }
+
+        "panes.screen" => {
+            let host = params["host"].as_str().unwrap_or("local").to_string();
+            let block = params["block_id"].as_str().ok_or_else(|| anyhow!("block_id is required"))?.to_string();
+            let lines = params["lines"].as_u64().unwrap_or(30) as usize;
+            let (rex, session) = {
+                let core = shared.lock();
+                let p = core.pane(&host, &block).ok_or_else(|| anyhow!("that pane is gone"))?;
+                (core.rex(&host)?, p.session_id.clone())
+            };
+            Ok(json!({ "text": rex.capture(&session, &block, lines).await? }))
         }
 
         "approve" | "deny" => crate::approve::answer(shared, id(&params)?, method == "approve", params["seen"].as_str()).await,

@@ -16,11 +16,14 @@ mod methods;
 mod mirror;
 mod notify;
 mod paths;
+mod push;
 mod rex;
 mod service;
 mod show;
 mod store;
 mod time;
+mod web;
+mod webapp;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -150,6 +153,8 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// The phone web app: where it is, and how to publish it on your tailnet.
+    Web,
     /// Print the hub's events as JSON lines until interrupted.
     Watch,
     /// Read one request ({"method", "params"}) from stdin and print the answer.
@@ -313,6 +318,38 @@ async fn run(cli: Cli) -> Result<()> {
                 );
             }
             println!("  {} open items", v["open_alerts"]);
+            Ok(())
+        }
+        Cmd::Web => {
+            let v = api::call("status", json!({}))?;
+            let w = &v["web"];
+            let Some(listen) = w["listen"].as_str() else {
+                println!("The web app is off (REX_INBOX_HTTP=off).");
+                return Ok(());
+            };
+            let port = listen.rsplit(':').next().unwrap_or("7430");
+            println!("listening   http://{listen} (this Mac only)");
+            match (w["owner"].as_str(), w["url"].as_str()) {
+                (Some(owner), Some(url)) => {
+                    println!("owner       {owner} (the only Tailscale user it answers)");
+                    println!("phone       {url}");
+                    println!("devices     {} with notifications on", w["devices"]);
+                    println!();
+                    println!("To publish it on your tailnet (once; it stays on):");
+                    println!("  tailscale serve --bg {port}");
+                    println!("Then open {url} in Safari on your phone, Share > Add to Home Screen,");
+                    println!("open it from the Home Screen, and turn on notifications.");
+                }
+                _ => {
+                    println!("tailscale   not running on this Mac, so the web app answers no one.");
+                    println!();
+                    println!("Install and sign in to Tailscale on this Mac and your phone (same tailnet):");
+                    println!("  brew install --cask tailscale");
+                    println!("In the Tailscale admin console, turn on MagicDNS and HTTPS certificates. Then:");
+                    println!("  tailscale serve --bg {port}");
+                    println!("and run rex-inbox web again for the phone's address.");
+                }
+            }
             Ok(())
         }
         Cmd::Watch => api::stream("watch", json!({}), |ev| {

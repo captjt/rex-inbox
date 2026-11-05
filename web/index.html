@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Inbox">
+  <meta name="theme-color" content="#1c1c1e">
+  <title>Rex Inbox</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icon-180.png">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header>
+    <div class="titles">
+      <h1>Rex Inbox</h1>
+      <p id="summary">Connecting…</p>
+    </div>
+    <div class="segmented" role="tablist">
+      <button role="tab" data-tab="inbox" class="on">Inbox</button>
+      <button role="tab" data-tab="agents">Agents</button>
+    </div>
+  </header>
+  <div id="notice" hidden></div>
+  <main id="main"></main>
+  <div id="toast" hidden></div>
+  <dialog id="sheet">
+    <div class="sheet-head"><strong id="sheet-title"></strong><button class="plain" data-close>Done</button></div>
+    <pre id="sheet-body"></pre>
+  </dialog>
+  <script src="/app.js"></script>
+</body>
+</html>

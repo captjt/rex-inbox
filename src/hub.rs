@@ -41,6 +41,10 @@ pub struct Core {
     /// Apps watching with `notifier: true` post notifications themselves,
     /// so the hub's own stay quiet while any is connected.
     pub notifiers: usize,
+    /// The Mac's Tailscale user: the only one the web app answers.
+    pub owner: Option<String>,
+    /// The web app's address on the tailnet, when Tailscale is up.
+    pub web_url: Option<String>,
 }
 
 #[derive(Clone)]
@@ -427,6 +431,8 @@ pub async fn run(socket: PathBuf, db: PathBuf, hosts: Vec<Rex>) -> Result<()> {
         events,
         started_at: time::now(),
         notifiers: 0,
+        owner: None,
+        web_url: None,
     })));
     let listener = bind(&socket).await?;
     say!("hub listening on {}", socket.display());
@@ -435,6 +441,16 @@ pub async fn run(socket: PathBuf, db: PathBuf, hosts: Vec<Rex>) -> Result<()> {
     }
     tokio::spawn(crate::deliver::run(shared.clone()));
     tokio::spawn(crate::notify::run(shared.clone()));
+    tokio::spawn(crate::push::run(shared.clone()));
+    if let Some(addr) = crate::web::addr() {
+        tokio::spawn(crate::web::watch_owner(shared.clone()));
+        let web = shared.clone();
+        tokio::spawn(async move {
+            if let Err(e) = crate::web::serve(web, addr).await {
+                say!("web app: {e:#}");
+            }
+        });
+    }
     loop {
         let (stream, _) = listener.accept().await?;
         let shared = shared.clone();
