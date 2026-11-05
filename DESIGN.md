@@ -112,7 +112,9 @@ An alert for a `blocked` + `permission` record offers Approve and Deny.
 
 ## Build steps
 
-Each step is usable on its own.
+Each step is usable on its own. Steps 1 to 3 and most of 4 and 5 were built
+and tested on 2026-11-05: two Haiku agents traded messages through the hub,
+and a real Claude Code prompt was approved and another denied.
 
 1. Hub, mirror, alerts, store, `ls` (local host).
 2. Messages: `send`, `inbox`, `read`, `reply`, `wait`, delivery into idle agent panes, `me`.
@@ -121,3 +123,15 @@ Each step is usable on its own.
 5. Skill for agents (`agents/skills/rex-inbox` in dotfiles) and the allowlist.
 6. Menu bar move from rex-reviewer; rex-reviewer feeds its attention items in.
 7. Other hosts: a watcher per `rex hosts` entry and the `inbox_rpc` action.
+
+## Known gaps
+
+- Claude Code's folder-trust prompt at startup reports no status, so it
+  never reaches the inbox.
+- Codex's approval keys aren't verified yet, so Codex prompts get Open only.
+- A message can land while you are typing into an idle agent's prompt. The
+  two-second settle makes this unlikely, but not impossible.
+- Default pane labels are all `shell`. Use `rex-inbox name` (or
+  `rex-agent start NAME`) for panes others should reach.
+- Notifications use osascript, so they come from Script Editor and clicking
+  does nothing. terminal-notifier, or the menu bar app later, fixes that.
