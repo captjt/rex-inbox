@@ -36,7 +36,17 @@ pub fn up() -> Result<()> {
     }
     let label_running = Command::new("launchctl").args(["print", &format!("{}/{LABEL}", domain()?)]).output()?.status.success();
     if hub_answers() && !label_running {
-        bail!("another hub is already running (rex-inbox status). Stop it first, then run rex-inbox up");
+        // A hub started by hand (rex-inbox hub): hand over to launchd.
+        let _ = crate::api::call("hub.stop", serde_json::json!({}));
+        for _ in 0..30 {
+            if !hub_answers() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        if hub_answers() {
+            bail!("another hub is running and didn't stop; stop it, then run rex-inbox up");
+        }
     }
     // A LaunchAgent's PATH is short: add rex, Homebrew, and cargo.
     let rex_dir = crate::rex::rex_bin().parent().map(|p| p.display().to_string()).unwrap_or_default();

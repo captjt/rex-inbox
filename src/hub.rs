@@ -469,6 +469,12 @@ async fn serve_conn(shared: Shared, stream: UnixStream) -> Result<()> {
             return Ok(());
         }
     };
+    if req.method == "hub.stop" {
+        w.write_all(format!("{}\n", serde_json::to_string(&Response::ok(json!({ "stopping": true })))?).as_bytes()).await?;
+        w.flush().await?;
+        say!("stopping on request");
+        std::process::exit(0);
+    }
     if req.method == "watch" {
         let mut rx = shared.lock().events.subscribe();
         w.write_all(format!("{}\n", serde_json::to_string(&Response::ok(json!({ "watching": true })))?).as_bytes()).await?;
