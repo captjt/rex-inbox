@@ -1,5 +1,10 @@
 //! rex-inbox: an inbox and message bus for coding agents running in Rex.
 
+/// A hub log line, with the time.
+macro_rules! say {
+    ($($t:tt)*) => { eprintln!("{} {}", crate::time::now(), format!($($t)*)) };
+}
+
 mod address;
 mod agents;
 mod api;
@@ -12,6 +17,7 @@ mod mirror;
 mod notify;
 mod paths;
 mod rex;
+mod service;
 mod show;
 mod store;
 mod time;
@@ -32,6 +38,15 @@ struct Cli {
 enum Cmd {
     /// Run the hub in the foreground.
     Hub,
+    /// Install and start the hub as a LaunchAgent (again, to restart it).
+    Up,
+    /// Stop the hub's LaunchAgent.
+    Down,
+    /// The end of the hub's log.
+    Logs {
+        #[arg(long, short = 'n', default_value_t = 50)]
+        lines: usize,
+    },
     /// What needs you: blocked, failed, and finished agents.
     Ls {
         /// Include dismissed and snoozed items.
@@ -199,6 +214,9 @@ async fn main() {
 async fn run(cli: Cli) -> Result<()> {
     match cli.cmd {
         Cmd::Hub => hub::run(paths::socket(), paths::db(), vec![rex::Rex::local()]).await,
+        Cmd::Up => service::up(),
+        Cmd::Down => service::down(),
+        Cmd::Logs { lines } => service::logs(lines),
         Cmd::Ls { all, history, json } => {
             let v = api::call("inbox", json!({ "all": all, "history": history }))?;
             if json {

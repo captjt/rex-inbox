@@ -20,10 +20,6 @@ pub fn after(d: Duration) -> String {
     fmt(OffsetDateTime::now_utc() + d)
 }
 
-pub fn is_past(s: &str) -> bool {
-    parse(s).is_none_or(|t| t <= OffsetDateTime::now_utc())
-}
-
 /// `45s`, `3m`, `2h`, `4d`.
 pub fn age(since: &str) -> String {
     let Some(t) = parse(since) else { return "?".into() };

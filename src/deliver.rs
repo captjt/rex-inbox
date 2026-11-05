@@ -56,7 +56,7 @@ fn plan(shared: &Shared, last: &HashMap<String, (Option<String>, Instant)>) -> V
     let queued = match core.store.queued_messages() {
         Ok(q) => q,
         Err(e) => {
-            eprintln!("rex-inbox: queued messages: {e:#}");
+            say!("queued messages: {e:#}");
             return Vec::new();
         }
     };
@@ -164,7 +164,7 @@ async fn deliver(shared: &Shared, d: &Due) -> bool {
         }
         Err(e) => {
             let err = format!("{e:#}");
-            eprintln!("rex-inbox: delivering #{}: {err}", d.msg.id);
+            say!("delivering #{}: {err}", d.msg.id);
             let r = if d.msg.attempts + 1 >= MAX_ATTEMPTS {
                 core.store.mark_failed(d.msg.id, &err)
             } else {

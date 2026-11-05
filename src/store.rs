@@ -256,11 +256,6 @@ impl Store {
         Ok(self.conn.query_row(&sql, [id], alert_row).optional()?)
     }
 
-    pub fn live_alert_by_key(&self, key: &str) -> Result<Option<Alert>> {
-        let sql = format!("SELECT {ALERT_COLS} FROM alerts WHERE key = ?1 AND {LIVE} ORDER BY id DESC LIMIT 1");
-        Ok(self.conn.query_row(&sql, [key], alert_row).optional()?)
-    }
-
     pub fn live_alerts_for_block(&self, host: &str, block: &str) -> Result<Vec<Alert>> {
         let sql = format!("SELECT {ALERT_COLS} FROM alerts WHERE host = ?1 AND block_id = ?2 AND {LIVE}");
         let mut st = self.conn.prepare(&sql)?;
@@ -457,7 +452,4 @@ impl Store {
         self.set_message(id, "status = CASE WHEN to_block IS NULL THEN 'done' ELSE 'cancelled' END, done_at = ?2", &[&t])
     }
 
-    pub fn conn(&self) -> &Connection {
-        &self.conn
-    }
 }

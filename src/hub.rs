@@ -63,7 +63,7 @@ impl Core {
     pub fn reconcile<I: IntoIterator<Item = String>>(&mut self, host: &str, blocks: I) {
         for block in blocks {
             if let Err(e) = self.reconcile_block(host, &block) {
-                eprintln!("rex-inbox: alerts for {host} {block}: {e:#}");
+                say!("alerts for {host} {block}: {e:#}");
             }
         }
     }
@@ -108,7 +108,7 @@ impl Core {
         let mut blocks: BTreeSet<String> = match self.store.live_alerts_for_host(host) {
             Ok(v) => v.into_iter().map(|a| a.block_id).collect(),
             Err(e) => {
-                eprintln!("rex-inbox: alerts for {host}: {e:#}");
+                say!("alerts for {host}: {e:#}");
                 BTreeSet::new()
             }
         };
@@ -178,7 +178,7 @@ pub async fn watch_host(shared: Shared, rex: Rex) {
             }
             core.emit(HubEvent::HostDisconnected { host: host.clone(), error: err.clone() });
         }
-        eprintln!("rex-inbox: lost {host}: {}", err.as_deref().unwrap_or("event stream ended"));
+        say!("lost {host}: {}", err.as_deref().unwrap_or("event stream ended"));
         if started.elapsed() > Duration::from_secs(60) {
             backoff = Duration::from_secs(1);
         }
@@ -204,7 +204,7 @@ async fn follow(shared: &Shared, rex: &Rex) -> Result<()> {
         core.reconcile_host(&host);
         core.emit(HubEvent::HostConnected { host: host.clone() });
     }
-    eprintln!("rex-inbox: following {host}");
+    say!("following {host}");
 
     let mut pending: BTreeSet<String> = BTreeSet::new();
     let mut pending_all = false;
@@ -229,7 +229,7 @@ async fn follow(shared: &Shared, rex: &Rex) -> Result<()> {
                 let only = if std::mem::take(&mut pending_all) { None } else { Some(std::mem::take(&mut pending)) };
                 pending.clear();
                 if let Err(e) = resync(shared, rex, only).await {
-                    eprintln!("rex-inbox: resync {host}: {e:#}");
+                    say!("resync {host}: {e:#}");
                 }
             }
         }
@@ -294,7 +294,7 @@ async fn snapshot(rex: &Rex, only: Option<(BTreeSet<String>, BTreeSet<String>)>)
         match r? {
             Ok(s) => sessions.push(s),
             // A session can vanish between list and view.
-            Err(e) => eprintln!("rex-inbox: {e:#}"),
+            Err(e) => say!("{e:#}"),
         }
     }
 
@@ -424,7 +424,7 @@ pub async fn run(socket: PathBuf, db: PathBuf, hosts: Vec<Rex>) -> Result<()> {
         started_at: time::now(),
     })));
     let listener = bind(&socket).await?;
-    eprintln!("rex-inbox: hub listening on {}", socket.display());
+    say!("hub listening on {}", socket.display());
     for rex in hosts {
         tokio::spawn(watch_host(shared.clone(), rex));
     }
@@ -435,7 +435,7 @@ pub async fn run(socket: PathBuf, db: PathBuf, hosts: Vec<Rex>) -> Result<()> {
         let shared = shared.clone();
         tokio::spawn(async move {
             if let Err(e) = serve_conn(shared, stream).await {
-                eprintln!("rex-inbox: connection: {e:#}");
+                say!("connection: {e:#}");
             }
         });
     }
