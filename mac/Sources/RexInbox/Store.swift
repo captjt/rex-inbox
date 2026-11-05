@@ -32,6 +32,18 @@ final class Store {
     /// What the menu bar counts: things waiting on you.
     var waiting: Int { needsYou.count + unread.count }
 
+    /// "2 need you · 1 message · 6 agents"
+    var summary: String {
+        guard connected else { return "Not connected" }
+        var parts: [String] = []
+        if !needsYou.isEmpty { parts.append("\(needsYou.count) need\(needsYou.count == 1 ? "s" : "") you") }
+        if !messages.isEmpty { parts.append("\(messages.count) message\(messages.count == 1 ? "" : "s")") }
+        if !failed.isEmpty { parts.append("\(failed.count) failed") }
+        if parts.isEmpty { parts.append("All clear") }
+        parts.append("\(panes.count) agent\(panes.count == 1 ? "" : "s")")
+        return parts.joined(separator: " · ")
+    }
+
     init() {
         if !Snapshot.isActive {
             notifier.start(store: self)

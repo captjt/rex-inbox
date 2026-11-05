@@ -34,7 +34,9 @@ macOS only for now. The hub talks to Rex only through the `rex` CLI.
 ## The Mac app
 
 A tray in the menu bar turns orange with a count while something needs
-you.
+you. Its panel is a quick look; the window button opens a full window with
+a sidebar (Everything, Needs You, Messages, Failed, Finished, Agents). The
+app shows in the Dock while that window is open.
 
 - **Inbox:** approve or deny a prompt, reply to a message, open the pane in
   Rex, snooze, or mark done.
@@ -42,8 +44,8 @@ you.
   message it.
 - **Notifications** carry the answer: Approve and Deny, or Reply.
 
-`RexInbox --snapshot out.png [--tab agents]` renders the panel to a PNG
-without opening it.
+`RexInbox --snapshot out.png [--tab agents] [--window]` renders the panel
+(or the window) to a PNG without opening anything on screen.
 
 ## Commands
 

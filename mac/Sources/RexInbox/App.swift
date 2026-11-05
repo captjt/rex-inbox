@@ -15,6 +15,12 @@ struct RexInboxApp: App {
             MenuBarLabel(store: store)
         }
         .menuBarExtraStyle(.window)
+
+        Window("Rex Inbox", id: "main") {
+            MainWindow(store: store)
+        }
+        .defaultSize(width: 980, height: 700)
+        .defaultLaunchBehavior(.suppressed)
     }
 }
 

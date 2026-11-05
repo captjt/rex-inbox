@@ -1,9 +1,10 @@
 import AppKit
 import SwiftUI
 
-/// `RexInbox --snapshot out.png [--tab agents] [--appearance light]` renders
-/// the panel, with the hub's live data, to a PNG at 2x and quits. It checks
-/// the layout without opening the menu.
+/// `RexInbox --snapshot out.png [--tab agents] [--window] [--appearance light]`
+/// renders the panel (or the window, with --window), with the hub's live
+/// data, to a PNG at 2x and quits. It checks the layout without opening
+/// anything on screen.
 @MainActor
 enum Snapshot {
     static let isActive = CommandLine.arguments.contains("--snapshot")
@@ -16,9 +17,13 @@ enum Snapshot {
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(1.5))
             await store.refresh()
-            let host = NSHostingView(rootView: PanelView(store: store, tab: tab).background(Color(nsColor: .windowBackgroundColor)))
+            let asWindow = args.contains("--window")
+            let root: AnyView = asWindow
+                ? AnyView(MainWindow(store: store, selection: tab == .agents ? .agents : .inbox(.all)).frame(width: 980, height: 700))
+                : AnyView(PanelView(store: store, tab: tab))
+            let host = NSHostingView(rootView: root.background(Color(nsColor: .windowBackgroundColor)))
             let window = NSWindow(
-                contentRect: NSRect(x: -10_000, y: -10_000, width: 440, height: 600),
+                contentRect: NSRect(x: -10_000, y: -10_000, width: asWindow ? 980 : 540, height: asWindow ? 700 : 600),
                 styleMask: [.borderless], backing: .buffered, defer: false
             )
             if let j = args.firstIndex(of: "--appearance"), j + 1 < args.count {
@@ -29,7 +34,7 @@ enum Snapshot {
             window.orderFrontRegardless()
             for _ in 0..<3 {
                 try? await Task.sleep(for: .seconds(0.5))
-                window.setContentSize(host.fittingSize)
+                if !asWindow { window.setContentSize(host.fittingSize) }
             }
             // Off screen the backing scale is 1; draw at 2x to stay sharp.
             let size = host.bounds.size
