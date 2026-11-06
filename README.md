@@ -1,5 +1,7 @@
 # rex-inbox
 
+<img src="docs/images/social-preview.png" alt="Rex Inbox: everything your agents need from you, in one place: approve a prompt, answer a question, post a review, from your Mac or your phone. Beside it, the menu bar panel with a review ready to post, a reviewer's permission prompt, a question, a message, and a failed agent.">
+
 Everything your Rex agents need from you, and messages between them.
 
 [Rex](https://www.superlogical.com/rex) already runs your agents' panes and
@@ -30,7 +32,8 @@ $ rex-inbox approve 17
 - Rust (edition 2024), for the hub and the CLI
 - Swift 6 (Xcode or its command line tools), for the Mac app
 - Optional: `terminal-notifier`, for clickable notifications when the Mac
-  app isn't running; `jq` and `sqlite3`, for `scripts/demo.sh`
+  app isn't running; `jq` and `sqlite3`, for `scripts/demo.sh`; those plus
+  Node 22 or later and Google Chrome, for `scripts/screenshots.sh`
 
 ## Install
 
@@ -53,6 +56,25 @@ you. Its panel is a quick look; the window button opens a full window with
 a sidebar (Everything, Needs You, Messages, Failed, Finished, Agents). The
 app shows in the Dock while that window is open.
 
+<table>
+  <tr>
+    <td valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/inbox-dark.png">
+        <img src="docs/images/inbox-light.png" width="400" alt="The Inbox tab: a review ready to post with Post, Dismiss and Preview, a reviewer's permission prompt with Approve and Deny, a question, a message to reply to, and a failed agent">
+      </picture>
+    </td>
+    <td valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/agents-dark.png">
+        <img src="docs/images/agents-light.png" width="400" alt="The Agents tab: each agent pane in a session, with its state, its folder, and what it's doing, and buttons to open it in Rex or message it">
+      </picture>
+    </td>
+  </tr>
+</table>
+
+<sub>The agents and PRs are made up. <code>scripts/screenshots.sh</code> renders these again from a made-up Rex.</sub>
+
 - **Inbox:** approve or deny a prompt, reply to a message, open the pane in
   Rex, snooze, or mark done.
 - **Agents:** every agent pane by session; click one to open it, or
@@ -63,15 +85,21 @@ app shows in the Dock while that window is open.
 `RexInbox --snapshot out.png [--tab agents] [--window]` renders the panel
 (or the window) to a PNG without opening anything on screen.
 
-`scripts/demo.sh up` fills the inbox with a made-up project (a Rex session
-`acme-api` of stand-in agents, and two messages to you) for screenshots;
-`scripts/demo.sh down` removes it.
+`scripts/demo.sh up` fills your inbox with a made-up project (a Rex session
+`acme-api` of stand-in agents, and two messages to you), to try the app
+without real agents; `scripts/demo.sh down` removes it.
 
 ## On your phone
 
 The hub also serves a web app. Publish it on your tailnet, then add it to
 your Home Screen for notifications. It needs no App Store and no
 developer account.
+
+<p>
+  <img src="docs/images/phone-light.png" width="260" alt="The web app on a phone, in light mode: a review ready to post, with Post, Dismiss and Preview, and a reviewer's permission prompt">
+  &nbsp;
+  <img src="docs/images/phone-dark.png" width="260" alt="The same, in dark mode">
+</p>
 
 ```sh
 brew install --cask tailscale   # sign in; same tailnet as the phone

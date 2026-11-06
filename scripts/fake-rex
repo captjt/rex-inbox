@@ -1,0 +1,73 @@
+#!/bin/bash
+# A made-up Rex server, for screenshots: it answers the calls the hub makes
+# from a world file ($REX_INBOX_WORLD), so the hub follows that world, never
+# your own Rex. Point the hub at it with REX_INBOX_REX. scripts/screenshots.sh
+# writes the world and runs the hub this way.
+#
+# The world is JSON: {"sessions": [{"session_id", "label", "windows": [{"window_id",
+# "label", "blocks": [{"block_id", "label", "cwd", "process", "records": [...]}]}]}],
+# "previews": {"<item id>": "markdown"}}. Records are program status records.
+set -euo pipefail
+world=${REX_INBOX_WORLD:?set REX_INBOX_WORLD to a world file}
+
+args=()
+for a in "$@"; do
+  [[ $a == --autostart=* ]] || args+=("$a")
+done
+set -- "${args[@]}"
+
+block() { # session block filter
+  jq -c --arg s "$1" --arg b "$2" ".sessions[] | select(.session_id == \$s) | .windows[].blocks[] | select(.block_id == \$b) | $3" "$world"
+}
+
+case "${1:-}" in
+  events)
+    # Nothing ever happens in this world. Stay until the hub goes.
+    while kill -0 "$PPID" 2>/dev/null; do sleep 1; done
+    ;;
+  api)
+    # api call [-s SESSION] METHOD -   (the params come on stdin)
+    shift 2
+    session=""
+    if [ "${1:-}" = -s ]; then
+      session=$2
+      shift 2
+    fi
+    method=$1
+    [ "${2:-}" = - ] && cat >/dev/null
+    case $method in
+      session.list) jq -c '{sessions: [.sessions[] | {session_id, label}]}' "$world" ;;
+      session.view)
+        jq -c --arg s "$session" '.sessions[] | select(.session_id == $s)
+          | {label, active_window_id: .windows[0].window_id, windows: [.windows[] | {window_id, label}]}' "$world"
+        ;;
+      session.list_blocks)
+        jq -c --arg s "$session" '{blocks: [.sessions[] | select(.session_id == $s) | .windows[] as $w
+          | $w.blocks[] | {block_id, label, creator_name: "com.superlogical.terminal", window_id: $w.window_id}]}' "$world"
+        ;;
+      *) echo '{}' ;;
+    esac
+    ;;
+  block)
+    # block call -s SESSION -b BLOCK METHOD ARGS
+    case $7 in
+      program_status) block "$4" "$6" '{records: .records}' ;;
+      process) block "$4" "$6" '{foreground: {name: .process, cwd: .cwd}}' ;;
+      pwd) block "$4" "$6" '{pwd: ("file://localhost" + .cwd)}' ;;
+      *) echo '{}' ;;
+    esac
+    ;;
+  capture)
+    # capture -s SESSION -b BLOCK --trim
+    block "$3" "$5" '.screen // "(a made-up pane)"' | jq -r .
+    ;;
+  do)
+    # rex-reviewer's preview action, for an item the world has a preview of.
+    if [ "${2:-}" = reviewer_preview ]; then
+      jq -c --arg i "${3#item=}" '{dry_run: true, preview: .previews[$i]}' "$world"
+    else
+      echo '{}'
+    fi
+    ;;
+  *) ;;
+esac

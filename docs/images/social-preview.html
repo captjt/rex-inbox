@@ -1,0 +1,112 @@
+<!doctype html>
+<!-- The GitHub social preview card. scripts/screenshots.sh renders it to
+     social-preview.png (1280x640) with headless Chrome, after inbox-dark.png. -->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root {
+    --bg: #0a0c10;
+    --text: #f0f3f6;
+    --muted: #9198a1;
+    --line: rgba(255, 255, 255, 0.09);
+    --orange: #f0883e;
+    --blue: #4493f8;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1280px; height: 640px; overflow: hidden; }
+  body {
+    background:
+      radial-gradient(620px 520px at 960px 360px, rgba(240, 136, 62, 0.15), transparent 70%),
+      radial-gradient(560px 420px at 120px 40px, rgba(68, 147, 248, 0.12), transparent 70%),
+      var(--bg);
+    color: var(--text);
+    font-family: -apple-system, system-ui, "Helvetica Neue", sans-serif;
+    position: relative;
+  }
+  /* A faint dot grid, fading out toward the panel. */
+  body::before {
+    content: "";
+    position: absolute; inset: 0;
+    background-image: radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+    background-size: 24px 24px;
+    mask-image: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, 0.5) 50%, transparent 75%);
+  }
+  .copy {
+    position: absolute; left: 76px; top: 0; bottom: 0; width: 680px;
+    display: flex; flex-direction: column; justify-content: center; gap: 26px;
+  }
+  .eyebrow {
+    align-self: flex-start;
+    font: 600 15px/1 ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--orange);
+    padding: 8px 12px; border-radius: 999px;
+    border: 1px solid rgba(240, 136, 62, 0.35);
+    background: rgba(240, 136, 62, 0.08);
+  }
+  h1 {
+    font-size: 84px; line-height: 0.95; font-weight: 750; letter-spacing: -0.035em;
+  }
+  .tagline {
+    font-size: 28px; line-height: 1.32; color: #c5ccd4; letter-spacing: -0.01em;
+    max-width: 610px; text-wrap: balance;
+  }
+  .flow { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .step {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 16px; font-weight: 550; color: var(--text);
+    padding: 9px 12px 9px 10px; border-radius: 10px;
+    border: 1px solid var(--line); background: rgba(255, 255, 255, 0.04);
+    white-space: nowrap;
+  }
+  .step b {
+    display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+    font: 700 12px/1 ui-monospace, "SF Mono", Menlo, monospace;
+    background: rgba(255, 255, 255, 0.1); color: var(--muted);
+  }
+  .step.you b { background: var(--orange); color: #1a0c02; }
+  .arrow { color: #4d545c; font-size: 16px; }
+  /* What agents report, stacked, and a bracket joining them into the inbox. */
+  .sources { display: flex; flex-direction: column; gap: 8px; }
+  .join {
+    align-self: stretch; width: 12px; margin: 20px -2px 20px -4px;
+    border: 1.5px solid #4d545c; border-left: 0; border-radius: 0 8px 8px 0;
+  }
+  .url {
+    position: absolute; left: 76px; bottom: 44px;
+    font: 500 17px/1 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted);
+  }
+  .panel {
+    position: absolute; right: 56px; top: 36px;
+    width: 400px; height: auto;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow:
+      0 0 0 1px rgba(0, 0, 0, 0.6),
+      0 30px 80px rgba(0, 0, 0, 0.65),
+      0 8px 24px rgba(0, 0, 0, 0.4);
+  }
+</style>
+</head>
+<body>
+  <div class="copy">
+    <span class="eyebrow">An inbox for your agents in Rex</span>
+    <h1>Rex Inbox</h1>
+    <p class="tagline">Everything your agents need from you, in one place: approve a prompt, answer a question, post a review, from your Mac or your phone.</p>
+    <div class="flow">
+      <div class="sources">
+        <span class="step"><b>1</b>An agent asks</span>
+        <span class="step"><b>1</b>A review is ready</span>
+      </div>
+      <span class="join"></span>
+      <span class="arrow">→</span>
+      <span class="step"><b>2</b>Rex Inbox checks it</span>
+      <span class="arrow">→</span>
+      <span class="step you"><b>✓</b>You answer</span>
+    </div>
+  </div>
+  <div class="url">github.com/captjt/rex-inbox</div>
+  <img class="panel" src="inbox-dark.png" alt="">
+</body>
+</html>
