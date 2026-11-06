@@ -185,11 +185,9 @@ fn entry_panes(e: &Value) -> Vec<(String, String)> {
             }
         }
     }
-    if !named {
-        if let Some(pane) = e["pane"].as_str() {
-            let who = e["reviewer"].as_str().unwrap_or("the");
-            out.push((pane.to_string(), format!("{label} · {who} reviewer")));
-        }
+    if !named && let Some(pane) = e["pane"].as_str() {
+        let who = e["reviewer"].as_str().unwrap_or("the");
+        out.push((pane.to_string(), format!("{label} · {who} reviewer")));
     }
     if let Some(pane) = e["checker_pane"].as_str() {
         out.push((pane.to_string(), format!("{label} · checker")));

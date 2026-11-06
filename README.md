@@ -21,15 +21,30 @@ $ rex-inbox approve 17
 #17 approved; the pane is now working
 ```
 
+> Rex is in private beta. rex-inbox needs a Rex build whose agents report
+> program status: Claude Code and Codex do on their own.
+
+## Requirements
+
+- macOS and Rex
+- Rust (edition 2024), for the hub and the CLI
+- Swift 6 (Xcode or its command line tools), for the Mac app
+- Optional: `terminal-notifier`, for clickable notifications when the Mac
+  app isn't running; `jq` and `sqlite3`, for `scripts/demo.sh`
+
 ## Install
 
 ```sh
+git clone https://github.com/captjt/rex-inbox ~/src/rex-inbox
+cd ~/src/rex-inbox
 cargo install --path .
 rex-inbox up          # the hub, as a LaunchAgent (logs: rex-inbox logs)
 mac/build.sh          # Rex Inbox.app, in ~/Applications
 ```
 
 macOS only for now. The hub talks to Rex only through the `rex` CLI.
+Agents use it through the same CLI: `rex-inbox send`, `inbox`, `read`, and
+`wait`.
 
 ## The Mac app
 
@@ -42,7 +57,8 @@ app shows in the Dock while that window is open.
   Rex, snooze, or mark done.
 - **Agents:** every agent pane by session; click one to open it, or
   message it.
-- **Notifications** carry the answer: Approve and Deny, or Reply.
+- **Notifications** carry the answer: Approve and Deny, Post and Dismiss
+  for a review, or Reply.
 
 `RexInbox --snapshot out.png [--tab agents] [--window]` renders the panel
 (or the window) to a PNG without opening anything on screen.
@@ -133,3 +149,7 @@ session with a rex-reviewer pane count as its.
 
 State lives in `~/.local/state/rex-inbox` (SQLite and the hub's socket).
 See [DESIGN.md](DESIGN.md) for the decisions and what comes next.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

@@ -253,7 +253,7 @@ pub fn thread(m: &Value, thread: &[Value]) {
             println!("{}", dim(&format!("#{} from {}, {} ago: {}", t["id"], who(str(t, "from_addr")), age(str(t, "created_at")), first_line(t))));
         }
     }
-    if str(m, "error") != "" {
+    if !str(m, "error").is_empty() {
         println!("{}", dim(&format!("error: {}", str(m, "error"))));
     }
 }

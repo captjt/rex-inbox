@@ -120,10 +120,10 @@ pub async fn dispatch(shared: &Shared, method: &str, params: &Value) -> Result<V
                 bail!("a message from you to you? Pass --to with an agent's pane");
             }
             // A message pasted into a reviewer mid-round would end up in its review.
-            if let (Some(host), Some(block)) = (&to_end.host, &to_end.block) {
-                if let Some(what) = core.managed(host, block) {
-                    bail!("{to} is rex-reviewer's ({what}), so it takes no messages; open it in Rex instead");
-                }
+            if let (Some(host), Some(block)) = (&to_end.host, &to_end.block)
+                && let Some(what) = core.managed(host, block)
+            {
+                bail!("{to} is rex-reviewer's ({what}), so it takes no messages; open it in Rex instead");
             }
             let m = send(&core, &from, &to_end, subject, body, None)?;
             Ok(serde_json::to_value(m)?)

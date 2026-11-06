@@ -253,11 +253,19 @@ async fn run(cli: Cli) -> Result<()> {
         }
         Cmd::Inbox { all, as_me, json } => {
             let v = api::call("messages.list", json!({ "caller": caller(as_me), "all": all }))?;
-            if json { print_json(&v) } else { Ok(show::messages(&list(&v))) }
+            if json {
+                return print_json(&v);
+            }
+            show::messages(&list(&v));
+            Ok(())
         }
         Cmd::Read { id, as_me, json } => {
             let v = api::call("messages.read", json!({ "caller": caller(as_me), "id": id }))?;
-            if json { print_json(&v) } else { Ok(show::thread(&v["message"], &list(&v["thread"]))) }
+            if json {
+                return print_json(&v);
+            }
+            show::thread(&v["message"], &list(&v["thread"]));
+            Ok(())
         }
         Cmd::Wait { thread, timeout, json } => {
             let v = api::call("messages.wait", json!({ "caller": caller(false), "thread": thread, "timeout": timeout }))?;
@@ -265,7 +273,11 @@ async fn run(cli: Cli) -> Result<()> {
                 eprintln!("rex-inbox: no message after {}s", timeout.unwrap_or(0.0));
                 std::process::exit(2);
             }
-            if json { print_json(&v) } else { Ok(show::message(&v["message"])) }
+            if json {
+                return print_json(&v);
+            }
+            show::message(&v["message"]);
+            Ok(())
         }
         Cmd::Whoami { json } => {
             let v = api::call("whoami", json!({ "caller": caller(false) }))?;
@@ -278,7 +290,11 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Name { name } => api::call("name", json!({ "caller": caller(false), "name": name })).map(|_| ()),
         Cmd::Agents { all, json } => {
             let v = api::call("panes.list", json!({ "all": all }))?;
-            if json { print_json(&v) } else { Ok(show::panes(&list(&v))) }
+            if json {
+                return print_json(&v);
+            }
+            show::panes(&list(&v));
+            Ok(())
         }
         Cmd::Show { id, screen, json } => {
             let mut v = api::call("show", json!({ "id": id }))?;

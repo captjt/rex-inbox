@@ -187,10 +187,10 @@ pub async fn dispatch(shared: &Shared, method: &str, params: Value) -> Result<Va
                     _ => None,
                 }
             };
-            if let Some((rex, item)) = item {
-                if crate::reviewer::act(&rex, "reviewer_focus", &item).await.is_ok() {
-                    return Ok(json!({ "item": item }));
-                }
+            if let Some((rex, item)) = item
+                && crate::reviewer::act(&rex, "reviewer_focus", &item).await.is_ok()
+            {
+                return Ok(json!({ "item": item }));
             }
             let (rex, session, block, window) = {
                 let core = shared.lock();

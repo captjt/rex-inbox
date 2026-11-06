@@ -93,10 +93,11 @@ fn plan(shared: &Shared, last: &HashMap<String, (Option<String>, Instant)>) -> V
         if !settled {
             continue;
         }
-        if let Some((upd, at)) = last.get(&key) {
-            if *upd == root.updated_at && at.elapsed() < Duration::from_secs(60) {
-                continue;
-            }
+        if let Some((upd, at)) = last.get(&key)
+            && *upd == root.updated_at
+            && at.elapsed() < Duration::from_secs(60)
+        {
+            continue;
         }
         let Ok(rex) = core.rex(&host) else { continue };
         due.push(Due { root_updated: root.updated_at.clone(), session: pane.session_id.clone(), block, rex, msg: m });

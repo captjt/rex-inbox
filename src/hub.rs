@@ -260,12 +260,14 @@ async fn follow(shared: &Shared, rex: &Rex) -> Result<()> {
     }
 }
 
+/// One pane's status in a snapshot: `(session, block, records, process, pwd)`.
+type PaneStatus = (String, String, Vec<Record>, Option<Value>, Option<Value>);
+
 struct HostSnapshot {
     /// `None` when only some sessions were fetched.
     all_sessions: Option<BTreeSet<String>>,
     sessions: Vec<SessionSnapshot>,
-    /// `(session, block, records, process, pwd)`.
-    statuses: Vec<(String, String, Vec<Record>, Option<Value>, Option<Value>)>,
+    statuses: Vec<PaneStatus>,
 }
 
 fn apply_snapshot(m: &mut HostMirror, snap: HostSnapshot) -> BTreeSet<String> {

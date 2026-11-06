@@ -51,10 +51,10 @@ pub async fn answer(shared: &Shared, id: i64, approve: bool, seen: Option<&str>)
     if alert.category != "needs_you" || alert.kind.as_deref() != Some("permission") {
         bail!("#{id} isn't a permission prompt; open it with: rex-inbox open {id}");
     }
-    if let Some(seen) = seen {
-        if alert.msg.as_deref() != Some(seen) {
-            bail!("#{id} changed since you saw it; nothing was sent. Look again with: rex-inbox show {id}");
-        }
+    if let Some(seen) = seen
+        && alert.msg.as_deref() != Some(seen)
+    {
+        bail!("#{id} changed since you saw it; nothing was sent. Look again with: rex-inbox show {id}");
     }
     let app = alert.app.clone().unwrap_or_default();
     let review = crate::reviewer::is_item(alert.app.as_deref(), &alert.record_id);

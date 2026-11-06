@@ -2,6 +2,11 @@
 name = "rex-inbox"
 version = "0.1.0"
 edition = "2024"
+description = "Everything your Rex agents need from you: one inbox, messages between agents, and guarded approvals"
+license = "MIT"
+repository = "https://github.com/captjt/rex-inbox"
+readme = "README.md"
+publish = false
 
 [dependencies]
 anyhow = "1.0.104"

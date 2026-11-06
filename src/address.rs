@@ -70,12 +70,13 @@ pub fn resolve<'a>(core: &'a Core, addr: &str, near: Option<(&str, &str)>) -> Re
         .filter(|p| session.is_none_or(|s| session_matches(core, p, s)))
         .filter(|p| pane_matches(p, pane))
         .collect();
-    if session.is_none() && found.len() > 1 {
-        if let Some((h, s)) = near {
-            let here: Vec<&Pane> = found.iter().copied().filter(|p| p.host == h && p.session_id == s).collect();
-            if !here.is_empty() {
-                return pick(core, addr, here);
-            }
+    if session.is_none()
+        && found.len() > 1
+        && let Some((h, s)) = near
+    {
+        let here: Vec<&Pane> = found.iter().copied().filter(|p| p.host == h && p.session_id == s).collect();
+        if !here.is_empty() {
+            return pick(core, addr, here);
         }
     }
     pick(core, addr, found)
