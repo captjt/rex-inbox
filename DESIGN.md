@@ -6,6 +6,12 @@ together (`rex hosts`, Tailscale). rex-inbox adds the layer on top: one inbox
 for everything that needs you, messages between agents, and approvals you can
 give from anywhere.
 
+The idea of an inbox for your agents comes from
+[Plannotator's Inbox](https://plannotator.ai/inbox), by
+[@backnotprop](https://github.com/backnotprop). There, agents leave
+questions, blockers and work, and you answer when you get to it. rex-inbox
+fills its inbox from the program status that agents already report to Rex.
+
 Rex's docs list "a unified priority inbox view" and mobile push for program
 status as future features. rex-inbox keeps its state in plain SQLite and talks
 to Rex only through the documented `rex` CLI, so it stays a thin layer that is

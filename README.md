@@ -10,6 +10,10 @@ knows what each one is doing: Claude Code and Codex report `working`,
 into one inbox, lets agents message each other and you, and lets you
 answer permission prompts without going to the pane.
 
+The idea comes from [Plannotator](https://github.com/backnotprop/plannotator)'s
+[Inbox](https://plannotator.ai/inbox), by [@backnotprop](https://github.com/backnotprop).
+See [Inspiration](#inspiration).
+
 ```
 $ rex-inbox ls
 Needs you
@@ -177,6 +181,20 @@ session with a rex-reviewer pane count as its.
 
 State lives in `~/.local/state/rex-inbox` (SQLite and the hub's socket).
 See [DESIGN.md](DESIGN.md) for the decisions and what comes next.
+
+## Inspiration
+
+rex-inbox started from [Plannotator](https://github.com/backnotprop/plannotator)'s
+[Inbox](https://plannotator.ai/inbox), by [@backnotprop](https://github.com/backnotprop).
+There, your agents' questions, blockers, plans and diffs collect in one
+place while they keep working. You get to them when you're ready, and each
+agent carries on with your answer. rex-inbox brings that idea to agents
+running in Rex:
+- the inbox fills from what the agents already report to Rex;
+- you can answer permission prompts from it;
+- it follows you to your phone.
+
+Thanks to @backnotprop for the idea, and for showing how well it works.
 
 ## License
 
