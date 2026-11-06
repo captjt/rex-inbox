@@ -91,10 +91,13 @@ const tilde = (p) => (p ? String(p).replace(/^\/Users\/[^/]+/, "~") : "");
 const shortId = (id) => String(id || "").split(/[-:]/).pop().slice(-6);
 
 function appName(a) {
-  return { "claude-code": "Claude Code", codex: "Codex" }[a] || a || "A program";
+  return { "claude-code": "Claude Code", codex: "Codex", "rex-reviewer": "Rex Reviewer" }[a] || a || "A program";
 }
 
+// A pane another tool runs goes by what it does there, such as
+// "api#12 · codex reviewer".
 function place(x) {
+  if (x.subject) return !x.host || x.host === "local" ? x.subject : `${x.host}:${x.subject}`;
   const s = x.session_label || shortId(x.session_id);
   const p = x.pane_label || x.label || shortId(x.block_id);
   const base = `${s}/${p}`;
@@ -109,7 +112,9 @@ function headline(a) {
 }
 
 const what = (x) => [x.title, x.msg].filter(Boolean).join(": ");
-const canAnswer = (a) => a.category === "needs_you" && a.kind === "permission" && a.app === "claude-code";
+// The hub says what an item can be answered with: approve and deny (named
+// Approve and Deny, or Post and Dismiss for a review), and preview.
+const answers = (a) => a.answers || [];
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 // ---- views ----
@@ -155,16 +160,18 @@ function alertCard(a) {
   const w = what(a);
   let body = "";
   if (w) body = a.category === "needs_you" ? `<div class="code">${esc(w)}</div>` : `<div class="what">${esc(w)}</div>`;
-  const answer = canAnswer(a)
-    ? `<button class="btn approve" data-act="approve" data-id="${a.id}" ${busy}>Approve</button>
-       <button class="btn deny" data-act="deny" data-id="${a.id}" ${busy}>Deny</button>`
-    : "";
+  const style = { approve: "btn approve", deny: "btn deny" };
+  const answer = answers(a)
+    .map((x) => `<button class="${style[x.action] || "btn"}" data-act="${esc(x.action)}" data-id="${a.id}" ${busy}>${esc(x.label)}</button>`)
+    .join("");
+  // A review's item comes from rex-reviewer's watcher, whose pane says little.
+  const screen = a.app === "rex-reviewer" ? "" : `<button class="btn" data-act="screen" data-id="${a.id}">Show pane</button>`;
   const snooze = a.category === "needs_you" ? `<button class="btn" data-act="snooze" data-id="${a.id}" ${busy}>Snooze 1h</button>` : "";
   return `<div class="card" id="item-${a.id}">
     <div class="row"><span class="icon c-${esc(a.category)}">●</span><span class="head">${esc(headline(a))}</span><span class="age">${age(a.created_at)}</span></div>
     <div class="meta">#${a.id} · ${esc(place(a))}${a.cwd ? " · " + esc(tilde(a.cwd)) : ""}</div>
     ${body}
-    <div class="actions">${answer}<button class="btn" data-act="screen" data-id="${a.id}">Show pane</button><span class="spacer"></span>${snooze}<button class="btn" data-act="done" data-id="${a.id}" ${busy}>Done</button></div>
+    <div class="actions">${answer}${screen}<span class="spacer"></span>${snooze}<button class="btn" data-act="done" data-id="${a.id}" ${busy}>Done</button></div>
   </div>`;
 }
 
@@ -240,13 +247,14 @@ async function act(id, work) {
   }
 }
 
-function showSheet(title, text) {
+// A pane's screen opens at its bottom, where the prompt is; a review at its top.
+function showSheet(title, text, fromTop = false) {
   document.getElementById("sheet-title").textContent = title;
   const pre = document.getElementById("sheet-body");
   pre.textContent = text;
   const d = document.getElementById("sheet");
   d.showModal();
-  pre.scrollTop = pre.scrollHeight;
+  pre.scrollTop = fromTop ? 0 : pre.scrollHeight;
 }
 
 main.addEventListener("input", (e) => {
@@ -269,8 +277,15 @@ main.addEventListener("click", async (e) => {
     case "deny":
       return act(id, async () => {
         const r = await call(b.dataset.act, { id, seen: alert && alert.msg });
-        toast(`#${id} ${b.dataset.act === "approve" ? "approved" : "denied"}; the pane is now ${r.now}`);
+        toast(r.summary ? `#${id}: ${r.summary}` : `#${id} ${b.dataset.act === "approve" ? "approved" : "denied"}; the pane is now ${r.now}`);
       });
+    case "preview":
+      try {
+        showSheet((alert && alert.title) || `#${id}`, (await call("preview", { id })).text, true);
+      } catch (err) {
+        toast(err.message, true);
+      }
+      return;
     case "snooze":
       return act(id, () => call("alerts.snooze", { id, for: "1h" }));
     case "done":

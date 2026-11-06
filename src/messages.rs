@@ -113,11 +113,17 @@ pub async fn dispatch(shared: &Shared, method: &str, params: &Value) -> Result<V
             let body = params["body"].as_str().unwrap_or_default();
             let subject = params["subject"].as_str().filter(|s| !s.is_empty());
             let to = params["to"].as_str().ok_or_else(|| anyhow!("to is required"))?;
-            let core = shared.lock();
+            let mut core = shared.lock();
             let from = caller.end(&core);
             let to_end = if to == ME { address::me() } else { address::end_of(&core, address::resolve(&core, to, caller.near())?) };
             if from.block.is_none() && to_end.block.is_none() {
                 bail!("a message from you to you? Pass --to with an agent's pane");
+            }
+            // A message pasted into a reviewer mid-round would end up in its review.
+            if let (Some(host), Some(block)) = (&to_end.host, &to_end.block) {
+                if let Some(what) = core.managed(host, block) {
+                    bail!("{to} is rex-reviewer's ({what}), so it takes no messages; open it in Rex instead");
+                }
             }
             let m = send(&core, &from, &to_end, subject, body, None)?;
             Ok(serde_json::to_value(m)?)

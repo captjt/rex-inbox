@@ -35,7 +35,8 @@ CREATE TABLE IF NOT EXISTS alerts (
   updated_at TEXT NOT NULL,
   snooze_until TEXT,
   resolved_at TEXT,
-  resolved_reason TEXT
+  resolved_reason TEXT,
+  subject TEXT                       -- what the pane is doing for another tool, such as a PR it reviews
 );
 CREATE INDEX IF NOT EXISTS alerts_live ON alerts(status, key);
 CREATE INDEX IF NOT EXISTS alerts_block ON alerts(host, block_id);
@@ -107,6 +108,13 @@ pub struct Alert {
     pub snooze_until: Option<String>,
     pub resolved_at: Option<String>,
     pub resolved_reason: Option<String>,
+    /// What the pane is doing for a tool that runs it, such as
+    /// `api#12 · codex reviewer` (see reviewer.rs). Clients show it in place
+    /// of the pane's session and label.
+    pub subject: Option<String>,
+    /// What the item can be answered with, besides Open, Snooze and Done.
+    /// Worked out from the fields above, never stored.
+    pub answers: Vec<crate::reviewer::Answer>,
 }
 
 /// The fields of an alert that come from the live record and pane.
@@ -129,14 +137,15 @@ pub struct AlertFields {
     pub window_label: Option<String>,
     pub pane_label: Option<String>,
     pub cwd: Option<String>,
+    pub subject: Option<String>,
 }
 
 const ALERT_COLS: &str = "id, key, status, category, host, session_id, block_id, window_id, record_id, state, kind, app, \
      title, msg, record_updated_at, session_label, window_label, pane_label, cwd, created_at, updated_at, \
-     snooze_until, resolved_at, resolved_reason";
+     snooze_until, resolved_at, resolved_reason, subject";
 
 fn alert_row(r: &Row) -> rusqlite::Result<Alert> {
-    Ok(Alert {
+    let mut a = Alert {
         id: r.get(0)?,
         key: r.get(1)?,
         status: r.get(2)?,
@@ -161,7 +170,11 @@ fn alert_row(r: &Row) -> rusqlite::Result<Alert> {
         snooze_until: r.get(21)?,
         resolved_at: r.get(22)?,
         resolved_reason: r.get(23)?,
-    })
+        subject: r.get(24)?,
+        answers: Vec::new(),
+    };
+    a.answers = crate::agents::answers(&a.status, &a.category, a.kind.as_deref(), a.app.as_deref(), &a.record_id);
+    Ok(a)
 }
 
 /// Live means not resolved: open, dismissed, or snoozed.
@@ -238,6 +251,17 @@ pub struct Store {
     conn: Connection,
 }
 
+/// Bring a database made by an older hub up to date.
+fn migrate(conn: &Connection) -> Result<()> {
+    let has_subject = conn
+        .prepare("SELECT 1 FROM pragma_table_info('alerts') WHERE name = 'subject'")?
+        .exists([])?;
+    if !has_subject {
+        conn.execute_batch("ALTER TABLE alerts ADD COLUMN subject TEXT")?;
+    }
+    Ok(())
+}
+
 impl Store {
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(dir) = path.parent() {
@@ -246,6 +270,7 @@ impl Store {
         let conn = Connection::open(path).with_context(|| format!("opening {}", path.display()))?;
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;")?;
         conn.execute_batch(SCHEMA)?;
+        migrate(&conn)?;
         Ok(Store { conn })
     }
 
@@ -303,11 +328,13 @@ impl Store {
         let t = now();
         self.conn.execute(
             "INSERT INTO alerts (id, key, status, category, host, session_id, block_id, window_id, record_id, state, \
-             kind, app, title, msg, record_updated_at, session_label, window_label, pane_label, cwd, created_at, updated_at) \
-             VALUES (?1, ?2, 'open', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?19)",
+             kind, app, title, msg, record_updated_at, session_label, window_label, pane_label, cwd, created_at, updated_at, \
+             subject) \
+             VALUES (?1, ?2, 'open', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?19, ?20)",
             params![
                 id, f.key, f.category, f.host, f.session_id, f.block_id, f.window_id, f.record_id, f.state, f.kind,
-                f.app, f.title, f.msg, f.record_updated_at, f.session_label, f.window_label, f.pane_label, f.cwd, t
+                f.app, f.title, f.msg, f.record_updated_at, f.session_label, f.window_label, f.pane_label, f.cwd, t,
+                f.subject
             ],
         )?;
         Ok(self.alert(id)?.expect("inserted alert"))
@@ -323,16 +350,17 @@ impl Store {
             && a.window_label == f.window_label
             && a.pane_label == f.pane_label
             && a.cwd == f.cwd
-            && a.window_id == f.window_id;
+            && a.window_id == f.window_id
+            && a.subject == f.subject;
         if same && a.record_updated_at == f.record_updated_at {
             return Ok(None);
         }
         self.conn.execute(
             "UPDATE alerts SET kind = ?2, app = ?3, title = ?4, msg = ?5, record_updated_at = ?6, session_label = ?7, \
-             window_label = ?8, pane_label = ?9, cwd = ?10, window_id = ?11, updated_at = ?12 WHERE id = ?1",
+             window_label = ?8, pane_label = ?9, cwd = ?10, window_id = ?11, updated_at = ?12, subject = ?13 WHERE id = ?1",
             params![
                 a.id, f.kind, f.app, f.title, f.msg, f.record_updated_at, f.session_label, f.window_label, f.pane_label,
-                f.cwd, f.window_id, now()
+                f.cwd, f.window_id, now(), f.subject
             ],
         )?;
         let fresh = self.alert(a.id)?.expect("alert");

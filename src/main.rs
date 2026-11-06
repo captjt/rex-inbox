@@ -17,6 +17,7 @@ mod mirror;
 mod notify;
 mod paths;
 mod push;
+mod reviewer;
 mod rex;
 mod service;
 mod show;
@@ -136,9 +137,13 @@ enum Cmd {
         json: bool,
     },
     /// Approve a permission prompt, if it is still the one the item shows.
+    /// For a review rex-reviewer has ready, post it.
     Approve { id: i64 },
     /// Deny a permission prompt, if it is still the one the item shows.
+    /// For a review rex-reviewer has ready, dismiss it.
     Deny { id: i64 },
+    /// Print a review rex-reviewer has ready, as it would post.
+    Preview { id: i64 },
     /// Bring an item's pane to the front in Rex.
     Open { id: i64 },
     /// Dismiss an alert until its pane's status changes, file a message, or
@@ -196,7 +201,10 @@ fn read_stdin() -> Result<String> {
 fn answer(method: &str, id: i64) -> Result<()> {
     let v = api::call(method, json!({ "id": id }))?;
     let done = if method == "approve" { "approved" } else { "denied" };
-    println!("#{id} {done}; the pane is now {}", v["now"].as_str().unwrap_or("?"));
+    match v["summary"].as_str() {
+        Some(s) => println!("#{id}: {s}"),
+        None => println!("#{id} {done}; the pane is now {}", v["now"].as_str().unwrap_or("?")),
+    }
     if v["cleared"] != Value::Bool(true) {
         std::process::exit(3);
     }
@@ -292,6 +300,11 @@ async fn run(cli: Cli) -> Result<()> {
         }
         Cmd::Approve { id } => answer("approve", id),
         Cmd::Deny { id } => answer("deny", id),
+        Cmd::Preview { id } => {
+            let v = api::call("preview", json!({ "id": id }))?;
+            println!("{}", v["text"].as_str().unwrap_or("").trim_end());
+            Ok(())
+        }
         Cmd::Open { id } => api::call("open", json!({ "id": id })).map(|_| ()),
         Cmd::Done { id } => api::call("done", json!({ "id": id })).map(|_| ()),
         Cmd::Snooze { id, duration } => api::call("alerts.snooze", json!({ "id": id, "for": duration })).map(|_| ()),

@@ -45,6 +45,8 @@ pub struct Core {
     pub owner: Option<String>,
     /// The web app's address on the tailnet, when Tailscale is up.
     pub web_url: Option<String>,
+    /// Which panes rex-reviewer runs, when it runs alongside.
+    pub reviewer: crate::reviewer::Ledger,
 }
 
 #[derive(Clone)]
@@ -79,7 +81,10 @@ impl Core {
         let mirror = self.hosts.get(host);
         let pane = mirror.and_then(|m| m.panes.get(block));
         let wanted = match (mirror, pane) {
-            (Some(m), Some(p)) => wanted_alerts(m, p),
+            (Some(m), Some(p)) => {
+                let managed = self.reviewer.managed(m, p);
+                wanted_alerts(m, p, managed.as_deref())
+            }
             _ => Vec::new(),
         };
         let closed = pane.is_none();
@@ -128,21 +133,32 @@ impl Core {
     pub fn pane(&self, host: &str, block: &str) -> Option<&Pane> {
         self.hosts.get(host)?.panes.get(block)
     }
+
+    /// What a pane does for rex-reviewer, when rex-reviewer runs it.
+    pub fn managed(&mut self, host: &str, block: &str) -> Option<String> {
+        let Core { hosts, reviewer, .. } = self;
+        let m = hosts.get(host)?;
+        reviewer.managed(m, m.panes.get(block)?)
+    }
 }
 
 /// The alerts a pane's records call for. Root records alert on blocked,
 /// error, and done. Child records (such as Claude Code's subagents) alert
-/// only on blocked and error: a subagent finishing is not news.
-fn wanted_alerts(m: &HostMirror, p: &Pane) -> Vec<AlertFields> {
+/// only on blocked and error: a subagent finishing is not news. Nor is an
+/// agent finishing in a pane another tool runs (`managed`, what the pane
+/// does for it): that tool moves on by itself.
+fn wanted_alerts(m: &HostMirror, p: &Pane, managed: Option<&str>) -> Vec<AlertFields> {
     p.records
         .values()
         .filter_map(|r| {
             let category = match r.state.as_str() {
                 "blocked" => "needs_you",
                 "error" => "failed",
-                "done" if r.is_root() => "finished",
+                "done" if r.is_root() && managed.is_none() => "finished",
                 _ => return None,
             };
+            let app = r.effective_app.clone().or_else(|| r.app.clone()).or_else(|| p.app().map(str::to_string));
+            let item = crate::reviewer::is_item(app.as_deref(), &r.id);
             Some(AlertFields {
                 key: format!("{}|{}|{}|{}", p.host, p.block_id, r.id, r.state),
                 category: category.to_string(),
@@ -153,14 +169,15 @@ fn wanted_alerts(m: &HostMirror, p: &Pane) -> Vec<AlertFields> {
                 record_id: r.id.clone(),
                 state: r.state.clone(),
                 kind: if r.state == "blocked" { r.kind.clone() } else { None },
-                app: r.effective_app.clone().or_else(|| r.app.clone()).or_else(|| p.app().map(str::to_string)),
+                app,
                 title: r.title.clone(),
                 msg: r.msg.clone(),
                 record_updated_at: r.updated_at.clone(),
                 session_label: m.session_label(&p.session_id).map(str::to_string),
                 window_label: m.window_label(&p.session_id, p.window_id.as_deref()).map(str::to_string),
                 pane_label: Some(p.label.clone()).filter(|l| !l.is_empty()),
-                cwd: p.cwd.clone(),
+                cwd: if item { None } else { p.cwd.clone() },
+                subject: if item { crate::reviewer::item_subject(&r.id) } else { managed.map(str::to_string) },
             })
         })
         .collect()
@@ -433,6 +450,7 @@ pub async fn run(socket: PathBuf, db: PathBuf, hosts: Vec<Rex>) -> Result<()> {
         notifiers: 0,
         owner: None,
         web_url: None,
+        reviewer: crate::reviewer::Ledger::new(crate::reviewer::state_dir()),
     })));
     let listener = bind(&socket).await?;
     say!("hub listening on {}", socket.display());
@@ -536,4 +554,46 @@ async fn serve_conn(shared: Shared, stream: UnixStream) -> Result<()> {
     };
     w.write_all(format!("{}\n", serde_json::to_string(&resp)?).as_bytes()).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rec(state: &str) -> Record {
+        Record { state: state.into(), app: Some("claude-code".into()), ..Default::default() }
+    }
+
+    #[test]
+    fn panes_another_tool_runs_raise_no_finished() {
+        let mut m = HostMirror::new("local");
+        m.apply_pane_status("s1", "b1", vec![rec("done")], None, None);
+        let p = &m.panes["b1"];
+        assert_eq!(wanted_alerts(&m, p, None).len(), 1);
+        assert!(wanted_alerts(&m, p, Some("api#12 · codex reviewer")).is_empty());
+
+        m.apply_pane_status("s1", "b1", vec![rec("blocked")], None, None);
+        let p = &m.panes["b1"];
+        let w = wanted_alerts(&m, p, Some("api#12 · codex reviewer"));
+        assert_eq!(w.len(), 1);
+        assert_eq!(w[0].category, "needs_you");
+        assert_eq!(w[0].subject.as_deref(), Some("api#12 · codex reviewer"));
+
+        m.apply_pane_status("s1", "b1", vec![rec("error")], None, None);
+        let p = &m.panes["b1"];
+        assert_eq!(wanted_alerts(&m, p, Some("api#12 · codex reviewer"))[0].category, "failed");
+    }
+
+    #[test]
+    fn agents_beside_a_reviewer_elsewhere_are_its() {
+        let mut ledger = crate::reviewer::Ledger::new(std::env::temp_dir().join("rex-inbox-no-ledger-here"));
+        let mut m = HostMirror::new("studio");
+        let watcher = Record { state: "idle".into(), app: Some("rex-reviewer".into()), ..Default::default() };
+        m.apply_pane_status("s1", "w", vec![watcher], None, None);
+        m.apply_pane_status("s1", "a", vec![rec("working")], None, None);
+        m.apply_pane_status("s2", "b", vec![rec("working")], None, None);
+        assert!(ledger.managed(&m, &m.panes["a"]).is_some());
+        assert!(ledger.managed(&m, &m.panes["b"]).is_none());
+        assert!(ledger.managed(&m, &m.panes["w"]).is_none());
+    }
 }

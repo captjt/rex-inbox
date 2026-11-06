@@ -26,9 +26,12 @@ pub struct PaneView {
     pub process: Option<String>,
     /// Child records (subagents, tasks) that are working.
     pub working_children: usize,
+    /// What the pane does for a tool that runs it, such as
+    /// `api#12 · codex reviewer`. Such panes are listed only with `all`.
+    pub subject: Option<String>,
 }
 
-fn pane_view(core: &crate::hub::Core, p: &Pane) -> PaneView {
+fn pane_view(core: &crate::hub::Core, p: &Pane, subject: Option<String>) -> PaneView {
     let m = core.hosts.get(&p.host);
     let head = p.headline();
     PaneView {
@@ -48,6 +51,7 @@ fn pane_view(core: &crate::hub::Core, p: &Pane) -> PaneView {
         cwd: p.cwd.clone(),
         process: p.process.clone(),
         working_children: p.records.values().filter(|r| !r.is_root() && r.state == "working").count(),
+        subject,
     }
 }
 
@@ -151,14 +155,19 @@ pub async fn dispatch(shared: &Shared, method: &str, params: Value) -> Result<Va
 
         "panes.list" => {
             let all = params["all"].as_bool().unwrap_or(false);
-            let core = shared.lock();
-            let mut v: Vec<PaneView> = core
-                .hosts
-                .values()
-                .flat_map(|m| m.panes.values())
-                .filter(|p| all || p.is_agent())
-                .map(|p| pane_view(&core, p))
-                .collect();
+            let mut guard = shared.lock();
+            let core = &mut *guard;
+            let mut picked = Vec::new();
+            for m in core.hosts.values() {
+                for p in m.panes.values() {
+                    let subject = core.reviewer.managed(m, p);
+                    // Agents another tool runs are its business, not yours.
+                    if all || (p.is_agent() && subject.is_none()) {
+                        picked.push((p, subject));
+                    }
+                }
+            }
+            let mut v: Vec<PaneView> = picked.into_iter().map(|(p, subject)| pane_view(core, p, subject)).collect();
             v.sort_by(|a, b| {
                 let u = |p: &PaneView| urgency(p.state.as_deref().unwrap_or(""));
                 u(b).cmp(&u(a)).then_with(|| a.session_label.cmp(&b.session_label)).then_with(|| a.label.cmp(&b.label))
@@ -168,6 +177,21 @@ pub async fn dispatch(shared: &Shared, method: &str, params: Value) -> Result<Va
 
         "open" => {
             let id = id(&params)?;
+            // A PR rex-reviewer reports: its tab, which shows the agents
+            // reviewing it, rather than the watcher's. The watcher's pane
+            // is the fallback.
+            let item = {
+                let core = shared.lock();
+                match core.store.alert(id)? {
+                    Some(a) if crate::reviewer::is_item(a.app.as_deref(), &a.record_id) => Some((core.rex(&a.host)?, a.record_id)),
+                    _ => None,
+                }
+            };
+            if let Some((rex, item)) = item {
+                if crate::reviewer::act(&rex, "reviewer_focus", &item).await.is_ok() {
+                    return Ok(json!({ "item": item }));
+                }
+            }
             let (rex, session, block, window) = {
                 let core = shared.lock();
                 let (host, session, block, window) = if let Some(a) = core.store.alert(id)? {
@@ -216,6 +240,8 @@ pub async fn dispatch(shared: &Shared, method: &str, params: Value) -> Result<Va
         }
 
         "approve" | "deny" => crate::approve::answer(shared, id(&params)?, method == "approve", params["seen"].as_str()).await,
+
+        "preview" => Ok(json!({ "text": crate::approve::preview(shared, id(&params)?).await? })),
 
         "screen" => {
             let lines = params["lines"].as_u64().unwrap_or(30) as usize;

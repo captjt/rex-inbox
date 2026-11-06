@@ -41,9 +41,15 @@ pub fn table(rows: &[Vec<String>], indent: &str) {
     }
 }
 
-/// `session/pane`, with a host prefix for hosts other than this one.
+/// `session/pane`, with a host prefix for hosts other than this one. A
+/// pane another tool runs goes by what it does there, such as
+/// `api#12 · codex reviewer`.
 pub fn place(v: &Value) -> String {
     let host = str(v, "host");
+    let on_host = |p: String| if host.is_empty() || host == "local" { p } else { format!("{host}:{p}") };
+    if let Some(subject) = v["subject"].as_str().filter(|s| !s.is_empty()) {
+        return on_host(subject.to_string());
+    }
     let session = match v["session_label"].as_str() {
         Some(s) if !s.is_empty() => s.to_string(),
         _ => short_id(str(v, "session_id")),
@@ -52,8 +58,7 @@ pub fn place(v: &Value) -> String {
         Some(p) if !p.is_empty() => p.to_string(),
         _ => short_id(str(v, "block_id")),
     };
-    let p = format!("{session}/{pane}");
-    if host.is_empty() || host == "local" { p } else { format!("{host}:{p}") }
+    on_host(format!("{session}/{pane}"))
 }
 
 pub fn short_id(id: &str) -> String {
@@ -159,6 +164,16 @@ pub fn alert_detail(a: &Value) {
         vec!["since".into(), format!("{} ago", age(str(a, "created_at")))],
     ];
     table(&rows.into_iter().filter(|r| !r[1].is_empty()).collect::<Vec<_>>(), "  ");
+    let id = &a["id"];
+    let answers: Vec<String> = a["answers"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|x| Some(format!("{}: rex-inbox {} {id}", x["label"].as_str()?, x["action"].as_str()?)))
+        .collect();
+    if !answers.is_empty() {
+        println!("  {}", dim(&answers.join("   ")));
+    }
     if let Some(r) = a["resolved_reason"].as_str() {
         println!("  {}", dim(&format!("resolved {} ago: {r}", age(str(a, "resolved_at")))));
     }

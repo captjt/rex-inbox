@@ -76,7 +76,8 @@ the app.
 | `ls [--all] [--history]` | What needs you: blocked, failed and finished agents, and messages to you. |
 | `agents [--all]` | Every agent pane, where it is, and what it's doing. |
 | `show N [--screen]` | One item; `--screen` adds the bottom of its pane. |
-| `approve N`, `deny N` | Answer a permission prompt, only if it's still the one `N` shows. |
+| `approve N`, `deny N` | Answer a permission prompt, only if it's still the one `N` shows. For a review [rex-reviewer](#with-rex-reviewer) has ready: post it, or dismiss it. |
+| `preview N` | A review rex-reviewer has ready, as it would post. |
 | `open N` | Bring the item's pane to the front in Rex. |
 | `done N`, `snooze N 1h`, `reopen N` | File an item. |
 | `send --to NAME [--subject S] TEXT\|-` | Message an agent's pane (`reviewer`, `session/pane`, a block id) or `me`. |
@@ -101,6 +102,34 @@ the app.
   Escape. Other agents can only be opened, until their prompts are checked.
 - **Notifications** cover needs you, failed, and messages to you. Each
   waits two seconds, and is dropped if you already answered.
+
+## With rex-reviewer
+
+[rex-reviewer](https://github.com/captjt/rex-reviewer) runs agent PR
+reviews in Rex. rex-inbox doesn't need it, and it doesn't need rex-inbox.
+When both run:
+
+- **A review ready to post is an item.** It has **Post**, **Dismiss**, and
+  **Preview**, in the app, in its notification, and on the phone. **Open**
+  shows the PR's tab. As with prompts, nothing happens unless the item is
+  still the one you saw, and rex-reviewer refuses once the round has moved on.
+- **Its agents report through it.** The reviewer and checker panes add no
+  Finished items, since the round moves on without you. They aren't listed
+  under Agents and take no messages. Their prompts and failures name the PR,
+  such as `api#12 · codex reviewer`, and you answer the prompts as usual.
+- **One icon alerts you.** rex-reviewer's menu bar app stops badging what
+  needs you while the hub runs.
+
+It works through what each one already publishes:
+- rex-reviewer's watcher reports one program status record per PR
+  (`app=rex-reviewer`).
+- Its Rex actions take a record's id (`rex do reviewer_post item=…`).
+- Its ledger in `~/.local/state/rex-reviewer` says which panes are its.
+
+On another host, where the hub can't read that ledger, the agents in a
+session with a rex-reviewer pane count as its.
+
+## State
 
 State lives in `~/.local/state/rex-inbox` (SQLite and the hub's socket).
 See [DESIGN.md](DESIGN.md) for the decisions and what comes next.

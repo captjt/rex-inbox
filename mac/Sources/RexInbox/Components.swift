@@ -123,6 +123,7 @@ struct MetaLine: View {
 struct AlertCard: View {
     let store: Store
     let alert: Alert
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         let busy = store.busy.contains(alert.id)
@@ -159,17 +160,18 @@ struct AlertCard: View {
                 }
                 if alert.canAnswer {
                     HStack(spacing: 8) {
-                        Button {
-                            Task { await store.approve(alert.id, seen: alert.msg) }
-                        } label: {
-                            Label("Approve", systemImage: "checkmark")
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.green)
-                        Button(role: .destructive) {
-                            Task { await store.deny(alert.id, seen: alert.msg) }
-                        } label: {
-                            Label("Deny", systemImage: "xmark")
+                        ForEach(alert.decisions, id: \.action) { decision($0) }
+                        if alert.canPreview {
+                            Button {
+                                Task {
+                                    if await store.preview(alert) {
+                                        openWindow(id: "preview")
+                                        NSApp.activate()
+                                    }
+                                }
+                            } label: {
+                                Label("Preview", systemImage: "doc.text.magnifyingglass")
+                            }
                         }
                         Spacer()
                         actions(busy: busy)
@@ -177,6 +179,26 @@ struct AlertCard: View {
                     .padding(.top, 2)
                     .disabled(busy)
                 }
+            }
+        }
+    }
+
+    /// Approve (or Post), and Deny (or Dismiss): the hub names them.
+    @ViewBuilder
+    private func decision(_ a: Answer) -> some View {
+        if a.action == "approve" {
+            Button {
+                Task { await store.answer(a.action, alert.id, seen: alert.msg) }
+            } label: {
+                Label(a.label, systemImage: "checkmark")
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.green)
+        } else {
+            Button(role: .destructive) {
+                Task { await store.answer(a.action, alert.id, seen: alert.msg) }
+            } label: {
+                Label(a.label, systemImage: "xmark")
             }
         }
     }

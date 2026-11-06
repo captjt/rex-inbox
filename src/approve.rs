@@ -4,6 +4,9 @@
 //! one the alert showed: the same record, still `blocked` on `permission`,
 //! with the same message and the same report time, and it is the only
 //! prompt waiting in that pane. Otherwise nothing is sent.
+//!
+//! A review rex-reviewer has ready to post is answered the same way, after
+//! the same check, with its actions instead of keys (see reviewer.rs).
 
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Value, json};
@@ -54,9 +57,11 @@ pub async fn answer(shared: &Shared, id: i64, approve: bool, seen: Option<&str>)
         }
     }
     let app = alert.app.clone().unwrap_or_default();
-    let Some((yes, no)) = crate::agents::prompt_keys(&app) else {
+    let review = crate::reviewer::is_item(alert.app.as_deref(), &alert.record_id);
+    let keys = crate::agents::prompt_keys(&app);
+    if keys.is_none() && !review {
         bail!("rex-inbox doesn't know how to answer {app}'s prompts yet; open it with: rex-inbox open {id}");
-    };
+    }
 
     // The guard: read the prompt from Rex now, not from the hub's mirror.
     let records = live_records(&rex, &alert.session_id, &alert.block_id).await?;
@@ -70,6 +75,10 @@ pub async fn answer(shared: &Shared, id: i64, approve: bool, seen: Option<&str>)
     if !same {
         bail!("#{id}'s prompt has changed: it is now {}. Nothing was sent.", describe(now));
     }
+    if review {
+        return answer_review(shared, &rex, &alert, approve).await;
+    }
+    let Some((yes, no)) = keys else { unreachable!("checked above") };
     let waiting = records.iter().filter(|r| r.state == "blocked").count();
     if waiting > 1 {
         bail!("{waiting} prompts are waiting in that pane, so a key could answer the wrong one. Open it with: rex-inbox open {id}");
@@ -95,6 +104,45 @@ pub async fn answer(shared: &Shared, id: i64, approve: bool, seen: Option<&str>)
         Some(r) => json!({ "id": id, "answer": verb, "cleared": true, "now": describe(r.as_ref()) }),
         None => json!({ "id": id, "answer": verb, "cleared": false, "now": "still blocked after 5s" }),
     })
+}
+
+/// Post or dismiss a review rex-reviewer has ready. rex-reviewer checks the
+/// round is still the one the item names. The item stays until the watcher
+/// clears its record, so it's set aside here at once.
+async fn answer_review(shared: &Shared, rex: &crate::rex::Rex, alert: &crate::store::Alert, post: bool) -> Result<Value> {
+    let id = alert.id;
+    let (verb, action) = if post { ("approve", "reviewer_post") } else { ("deny", "reviewer_dismiss") };
+    let result = crate::reviewer::act(rex, action, &alert.record_id).await?;
+    let summary = if post {
+        match result["url"].as_str() {
+            Some(url) => format!("Posted the review: {url}"),
+            None => "Posted the review".to_string(),
+        }
+    } else {
+        "Dismissed the review; the round ended without posting".to_string()
+    };
+    {
+        let core = shared.lock();
+        core.store.log(verb, &json!({ "id": id, "app": crate::reviewer::APP, "item": alert.record_id, "result": result }))?;
+        if let Some(a) = core.store.set_alert_status(id, "dismissed", None)? {
+            core.emit(crate::hub::HubEvent::AlertUpdated { alert: a });
+        }
+    }
+    Ok(json!({ "id": id, "answer": verb, "cleared": true, "now": if post { "posted" } else { "dismissed" }, "summary": summary, "result": result }))
+}
+
+/// A review's text as it would post, from rex-reviewer's preview action.
+pub async fn preview(shared: &Shared, id: i64) -> Result<String> {
+    let (rex, alert) = {
+        let core = shared.lock();
+        let a = core.store.alert(id)?.ok_or_else(|| anyhow!("no alert {id}"))?;
+        (core.rex(&a.host)?, a)
+    };
+    if !crate::reviewer::is_item(alert.app.as_deref(), &alert.record_id) {
+        bail!("#{id} has no preview; only reviews rex-reviewer has ready do");
+    }
+    let v = crate::reviewer::act(&rex, "reviewer_preview", &alert.record_id).await?;
+    v["preview"].as_str().map(str::to_string).ok_or_else(|| anyhow!("rex-reviewer's preview came back empty"))
 }
 
 /// The bottom of the alert's pane, so you can see the prompt itself.

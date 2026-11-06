@@ -35,6 +35,7 @@ const ALLOWED: &[&str] = &[
     "screen",
     "approve",
     "deny",
+    "preview",
     "done",
     "alerts.snooze",
     "alerts.reopen",

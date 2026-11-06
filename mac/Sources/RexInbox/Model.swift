@@ -21,8 +21,17 @@ struct Alert: Decodable, Identifiable, Hashable {
     let cwd: String?
     let createdAt: String
     let resolvedReason: String?
+    /// What the pane does for a tool that runs it, such as
+    /// `api#12 · codex reviewer`. It stands in for the pane's place.
+    let subject: String?
+    /// What the item can be answered with, as the hub decides: the method
+    /// to call and the button's label (Approve, or Post for a review).
+    let answers: [Answer]?
 
-    var place: String { Format.place(host: host, session: sessionLabel, pane: paneLabel, block: blockId) }
+    var place: String {
+        if let subject, !subject.isEmpty { return host == "local" ? subject : "\(host):\(subject)" }
+        return Format.place(host: host, session: sessionLabel, pane: paneLabel, block: blockId)
+    }
     var appName: String { Format.appName(app) }
 
     /// One line saying what it is waiting on or did.
@@ -30,8 +39,12 @@ struct Alert: Decodable, Identifiable, Hashable {
         [title, msg].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ": ")
     }
 
-    /// Whether the app can answer this prompt with a key (the hub checks again).
-    var canAnswer: Bool { category == "needs_you" && kind == "permission" && app == "claude-code" }
+    /// Whether it can be answered from here (the hub checks again).
+    var canAnswer: Bool { !(answers ?? []).isEmpty }
+
+    /// The answers that send something: approve and deny, without preview.
+    var decisions: [Answer] { (answers ?? []).filter { $0.action != "preview" } }
+    var canPreview: Bool { (answers ?? []).contains { $0.action == "preview" } }
 
     var headline: String {
         switch (category, kind) {
@@ -43,6 +56,12 @@ struct Alert: Decodable, Identifiable, Hashable {
         default: return "\(appName) needs you"
         }
     }
+}
+
+/// One answer an item offers: `approve`, `deny`, or `preview`.
+struct Answer: Decodable, Hashable {
+    let action: String
+    let label: String
 }
 
 struct Message: Decodable, Identifiable, Hashable {
@@ -88,6 +107,7 @@ struct Pane: Decodable, Identifiable, Hashable {
     let cwd: String?
     let process: String?
     let workingChildren: Int
+    let subject: String?
 
     var id: String { host + "|" + blockId }
     var session: String { (sessionLabel?.isEmpty == false ? sessionLabel : nil) ?? Format.shortID(sessionId) }
@@ -106,6 +126,7 @@ enum Format {
         switch app {
         case "claude-code": return "Claude Code"
         case "codex": return "Codex"
+        case "rex-reviewer": return "Rex Reviewer"
         case let a?: return a
         case nil: return "A program"
         }

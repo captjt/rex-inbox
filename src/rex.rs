@@ -122,6 +122,15 @@ impl Rex {
         Ok(all[all.len().saturating_sub(lines)..].join("\n"))
     }
 
+    /// `rex do ACTION KEY=VALUE...`: an action `init.lua` defines, such as
+    /// another tool's. Its result, as JSON.
+    pub async fn action(&self, name: &str, args: &[(&str, &str)]) -> Result<Value> {
+        let pairs: Vec<String> = args.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        let mut argv = vec!["do", name];
+        argv.extend(pairs.iter().map(String::as_str));
+        self.run_json(&argv, None).await
+    }
+
     /// `rex focus` plus the app's `session.select`, so the pane is in front.
     pub async fn focus(&self, session: &str, block: &str, window: Option<&str>) -> Result<()> {
         self.run(&["focus", "-s", session, block], None).await?;

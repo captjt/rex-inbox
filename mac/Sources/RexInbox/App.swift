@@ -21,6 +21,12 @@ struct RexInboxApp: App {
         }
         .defaultSize(width: 980, height: 700)
         .defaultLaunchBehavior(.suppressed)
+
+        Window("Review", id: "preview") {
+            PreviewWindow(store: store)
+        }
+        .defaultSize(width: 720, height: 640)
+        .defaultLaunchBehavior(.suppressed)
     }
 }
 

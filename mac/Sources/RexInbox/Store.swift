@@ -17,6 +17,8 @@ final class Store {
     var note: String?
     /// Items with an action in flight.
     var busy: Set<Int> = []
+    /// The review the preview window shows.
+    var previewed: Previewed?
     var openAtLogin = SMAppService.mainApp.status == .enabled
     /// Ticks once a minute so ages stay current.
     var now = Date()
@@ -110,15 +112,34 @@ final class Store {
         await answer("deny", id, seen: seen)
     }
 
-    private func answer(_ method: String, _ id: Int, seen: String?) async {
+    /// Approve or deny, as the item's answers name them. A review posts or
+    /// is dismissed, and the hub says which in its summary.
+    func answer(_ method: String, _ id: Int, seen: String?) async {
         var params: [String: Any] = ["id": id]
         if let seen { params["seen"] = seen }
         await act(id) {
             let data = try await Hub.call(method, params)
             let result = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-            let now = result?["now"] as? String ?? "?"
-            self.flash("#\(id) \(method == "approve" ? "approved" : "denied"); the pane is now \(now)")
+            if let summary = result?["summary"] as? String {
+                self.flash("#\(id): \(summary)")
+            } else {
+                let now = result?["now"] as? String ?? "?"
+                self.flash("#\(id) \(method == "approve" ? "approved" : "denied"); the pane is now \(now)")
+            }
         }
+    }
+
+    /// Fetch a review as it would post, for the preview window. False when
+    /// it couldn't be had (the problem says why).
+    func preview(_ a: Alert) async -> Bool {
+        var ok = false
+        await act(a.id) {
+            let data = try await Hub.call("preview", ["id": a.id])
+            let result = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            self.previewed = Previewed(alert: a, text: result?["text"] as? String ?? "")
+            ok = true
+        }
+        return ok
     }
 
     /// Bring an item's pane to the front: the pane in Rex, then Rex itself.

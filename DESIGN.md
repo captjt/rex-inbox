@@ -20,7 +20,7 @@ easy to drop when Rex ships its own.
 | Machines | One hub on the home Rex server. Every record carries a `host` so other Rex hosts can be added later without a schema change. |
 | Phone | A web app the hub serves, added to the Home Screen, published on the tailnet with `tailscale serve` (option B). Web Push for notifications. No Apple developer account, so no native iOS app. |
 | Approvals | Guarded one-tap approve and deny (see below). |
-| Repo | On GitHub at captjt/rex-inbox. |
+| Repo | Open source, beside rex-reviewer. |
 
 ## Pieces
 
@@ -101,8 +101,9 @@ An alert for a `blocked` + `permission` record offers Approve and Deny.
 
 ## Surfaces
 
-rex-inbox stands alone: it doesn't change or depend on rex-reviewer or any
-other tool. There is no TUI.
+rex-inbox stands alone: it depends on no other tool, and works the same
+without one. When rex-reviewer runs too, the two fit together (see "With
+rex-reviewer" below). There is no TUI.
 
 1. **Rex Inbox.app** (`mac/`), a SwiftUI menu bar app that talks to the hub
    over its socket.
@@ -146,6 +147,34 @@ other tool. There is no TUI.
     the app.
 
 
+## With rex-reviewer
+
+Neither tool needs the other, and neither changes when the other is
+missing. When both run, rex-inbox does the alerting, and rex-reviewer's menu
+bar app stays its dashboard: rounds, the queue, the recap. They meet only in
+what each already publishes. There are no imports and no shared code.
+
+| rex-reviewer publishes | rex-inbox uses it to |
+| --- | --- |
+| One status record per PR on the watcher's pane: `app=rex-reviewer`, id `pr/<owner>/<name>/<pr>/<round>`. A review ready to post is `blocked` + `permission`. | Make each PR its own item. The answers are **Post**, **Dismiss**, and **Preview** rather than Approve and Deny. The item reads `name#pr · round r` rather than the watcher's pane. |
+| Rex actions that take a record's id: `reviewer_post`, `reviewer_dismiss`, `reviewer_preview`, `reviewer_focus` with `item=`. They act only on the round the id names, and post only a round that waits for you. | Post, dismiss and preview. Open shows the PR's tab. |
+| Its ledger: each PR's `session_id`, its reviewers' panes, and the checker's pane. | Fold those panes into the PR. They raise no Finished items and take no messages, they're left out of Agents, and their prompts and failures read `api#12 · codex reviewer`. |
+
+- **Answers come from the hub.** Each alert carries `answers`: the methods
+  a client may call and their labels. The Mac app, its notifications, the
+  phone and the CLI show what the hub says, instead of each knowing which
+  apps can be answered.
+- **The guard is the same as for prompts.** The record must still be
+  `blocked` on `permission`, with the same message and report time. Then
+  rex-reviewer's action checks the round. After a post or a dismissal the
+  item is set aside, until the watcher clears its record.
+- **Another host.** The ledger is a local file. On another host, the agents
+  in a session that holds a rex-reviewer pane count as its, named by their
+  tab.
+- **The badge.** rex-reviewer's app checks the hub's socket. While the hub
+  answers, its icon turns orange only for a watcher that's down. rex-inbox
+  can't see that case, because a stopped watcher reports nothing.
+
 ## Build steps
 
 Each step is usable on its own.
@@ -158,6 +187,7 @@ Each step is usable on its own.
 6. Done: the phone web app, HTTP API, and Web Push (waiting on Tailscale on the Mac to try on a phone).
 7. Codex's prompt keys, checked against a live prompt.
 8. Other hosts: a watcher per `rex hosts` entry, and the `inbox_rpc` action.
+9. Done: rex-reviewer's reviews as items, with its agents folded in (see "With rex-reviewer").
 
 Tested on 2026-11-05: two Haiku agents traded messages through the hub, a
 real Claude Code prompt was approved and another denied, and a prompt was

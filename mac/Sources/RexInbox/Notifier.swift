@@ -2,8 +2,9 @@ import Foundation
 import UserNotifications
 
 /// Notifications for what needs you, with the answer in the notification:
-/// Approve or Deny a Claude Code permission prompt, Reply to a message, or
-/// Open the pane. While the app runs, the hub's own notifications stay quiet.
+/// Approve or Deny a Claude Code permission prompt, Post or Dismiss a review
+/// rex-reviewer has ready, Reply to a message, or Open the pane. While the
+/// app runs, the hub's own notifications stay quiet.
 @MainActor
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     private weak var store: Store?
@@ -14,22 +15,36 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     /// UserNotifications needs a real app bundle; `swift run` has none.
     private var available: Bool { Bundle.main.bundleIdentifier != nil }
 
+    private var categories: Set<UNNotificationCategory> = []
+    private let openAction = UNNotificationAction(identifier: "open", title: "Open", options: [.foreground])
+
+    /// A category for a set of answers, named by them, so a notification's
+    /// buttons say what the hub says (Approve, or Post).
+    private func category(_ answers: [Answer]) -> UNNotificationCategory {
+        let id = "answers:" + answers.map { "\($0.action)=\($0.label)" }.joined(separator: ",")
+        let actions = answers.map {
+            UNNotificationAction(identifier: $0.action, title: $0.label, options: $0.action == "deny" ? [.destructive] : [])
+        }
+        return UNNotificationCategory(identifier: id, actions: actions + [openAction], intentIdentifiers: [])
+    }
+
     func start(store: Store) {
         self.store = store
         guard available else { return }
         let center = UNUserNotificationCenter.current()
         center.delegate = self
-        let approve = UNNotificationAction(identifier: "approve", title: "Approve", options: [])
-        let deny = UNNotificationAction(identifier: "deny", title: "Deny", options: [.destructive])
-        let open = UNNotificationAction(identifier: "open", title: "Open", options: [.foreground])
         let reply = UNTextInputNotificationAction(
             identifier: "reply", title: "Reply", options: [],
             textInputButtonTitle: "Send", textInputPlaceholder: "Your answer")
-        center.setNotificationCategories([
-            UNNotificationCategory(identifier: "permission", actions: [approve, deny, open], intentIdentifiers: []),
-            UNNotificationCategory(identifier: "alert", actions: [open], intentIdentifiers: []),
-            UNNotificationCategory(identifier: "message", actions: [reply, open], intentIdentifiers: []),
-        ])
+        // The answers the hub offers today, registered up front so the first
+        // notification has its buttons. Others are added as they turn up.
+        categories = [
+            category([Answer(action: "approve", label: "Approve"), Answer(action: "deny", label: "Deny")]),
+            category([Answer(action: "approve", label: "Post"), Answer(action: "deny", label: "Dismiss")]),
+            UNNotificationCategory(identifier: "alert", actions: [openAction], intentIdentifiers: []),
+            UNNotificationCategory(identifier: "message", actions: [reply, openAction], intentIdentifiers: []),
+        ]
+        center.setNotificationCategories(categories)
         center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
@@ -48,6 +63,9 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             post(message: m)
         case "alert_resolved":
             if let a = event.alert { withdraw(a.id) }
+        case "alert_updated":
+            // Answered, dismissed or snoozed: it doesn't need you now.
+            if let a = event.alert, a.status != "open" { withdraw(a.id) }
         case "message_updated":
             if let m = event.message, m.status == "done" || m.status == "read" { withdraw(m.id) }
         default:
@@ -62,9 +80,18 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         content.body = a.what.isEmpty ? Format.tilde(a.cwd) : a.what
         content.sound = .default
         content.threadIdentifier = a.blockId
-        content.categoryIdentifier = a.canAnswer ? "permission" : "alert"
+        content.categoryIdentifier = a.canAnswer ? categoryID(a.decisions) : "alert"
         content.userInfo = ["id": a.id, "msg": a.msg ?? ""]
         deliver(a.id, content)
+    }
+
+    private func categoryID(_ answers: [Answer]) -> String {
+        let c = category(answers)
+        if !categories.contains(where: { $0.identifier == c.identifier }) {
+            categories.insert(c)
+            UNUserNotificationCenter.current().setNotificationCategories(categories)
+        }
+        return c.identifier
     }
 
     private func post(message m: Message) {
