@@ -106,10 +106,10 @@ developer account.
 </p>
 
 ```sh
-brew install --cask tailscale   # sign in; same tailnet as the phone
+brew install --cask tailscale-app   # sign in; same tailnet as the phone
 # Tailscale admin console: turn on MagicDNS and HTTPS certificates
 tailscale serve --bg 7430
-rex-inbox web                   # prints the phone's address
+rex-inbox web                       # prints the phone's address
 ```
 
 Open that address in Safari, choose Share › Add to Home Screen, open it

@@ -360,20 +360,41 @@ async fn run(cli: Cli) -> Result<()> {
             println!("listening   http://{listen} (this Mac only)");
             match (w["owner"].as_str(), w["url"].as_str()) {
                 (Some(owner), Some(url)) => {
+                    let devices = w["devices"].as_u64().unwrap_or(0);
                     println!("owner       {owner} (the only Tailscale user it answers)");
                     println!("phone       {url}");
-                    println!("devices     {} with notifications on", w["devices"]);
+                    println!("devices     {devices} with notifications on");
+                    let ready = web::readiness(port);
+                    let mut todo = Vec::new();
+                    if ready.magic_dns == Some(false) || ready.https == Some(false) {
+                        let what = match (ready.magic_dns, ready.https) {
+                            (Some(false), Some(false)) => "MagicDNS and HTTPS certificates are",
+                            (Some(false), _) => "MagicDNS is",
+                            _ => "HTTPS certificates are",
+                        };
+                        todo.push(format!(
+                            "{what} off for your tailnet, so the phone can't open {url}.\n  \
+                             Turn them on at https://login.tailscale.com/admin/dns"
+                        ));
+                    }
+                    if ready.served == Some(false) {
+                        todo.push(format!("Publish it on your tailnet (once; it stays on):\n  tailscale serve --bg {port}"));
+                    }
                     println!();
-                    println!("To publish it on your tailnet (once; it stays on):");
-                    println!("  tailscale serve --bg {port}");
-                    println!("Then open {url} in Safari on your phone, Share > Add to Home Screen,");
-                    println!("open it from the Home Screen, and turn on notifications.");
+                    if !todo.is_empty() {
+                        println!("{}", todo.join("\n\n"));
+                    } else if devices == 0 {
+                        println!("Open {url} in Safari on your phone, Share > Add to Home Screen,");
+                        println!("open it from the Home Screen, and turn on notifications.");
+                    } else {
+                        println!("Ready. Open Rex Inbox from your phone's Home Screen.");
+                    }
                 }
                 _ => {
                     println!("tailscale   not running on this Mac, so the web app answers no one.");
                     println!();
                     println!("Install and sign in to Tailscale on this Mac and your phone (same tailnet):");
-                    println!("  brew install --cask tailscale");
+                    println!("  brew install --cask tailscale-app");
                     println!("In the Tailscale admin console, turn on MagicDNS and HTTPS certificates. Then:");
                     println!("  tailscale serve --bg {port}");
                     println!("and run rex-inbox web again for the phone's address.");

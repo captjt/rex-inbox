@@ -175,6 +175,41 @@ pub async fn tailscale_status() -> Option<Value> {
     serde_json::from_slice(&out.stdout).ok()
 }
 
+/// What `rex-inbox web` checks before it sends you to the phone: each is
+/// None when Tailscale didn't say.
+pub struct Readiness {
+    /// MagicDNS, so the phone can find this Mac by name.
+    pub magic_dns: Option<bool>,
+    /// HTTPS certificates, so `tailscale serve` can answer on https.
+    pub https: Option<bool>,
+    /// `tailscale serve` proxies to this port.
+    pub served: Option<bool>,
+}
+
+/// Ask Tailscale (from the CLI, without the hub) what's still missing.
+pub fn readiness(port: &str) -> Readiness {
+    let run = |args: &[&str]| -> Option<Value> {
+        let out = std::process::Command::new(tailscale_bin()?).args(args).output().ok()?;
+        out.status.success().then(|| serde_json::from_slice(&out.stdout).ok()).flatten()
+    };
+    readiness_of(run(&["status", "--json"]).as_ref(), run(&["serve", "status", "--json"]).as_ref(), port)
+}
+
+/// Readiness from `tailscale status --json` and `tailscale serve status --json`.
+fn readiness_of(status: Option<&Value>, serve: Option<&Value>, port: &str) -> Readiness {
+    let target = format!(":{port}");
+    let proxies_here = |site: &Value| {
+        site["Handlers"].as_object().is_some_and(|hs| {
+            hs.values().any(|h| h["Proxy"].as_str().is_some_and(|p| p.trim_end_matches('/').ends_with(&target)))
+        })
+    };
+    Readiness {
+        magic_dns: status.and_then(|s| s["CurrentTailnet"]["MagicDNSEnabled"].as_bool()),
+        https: status.map(|s| s["CertDomains"].as_array().is_some_and(|d| !d.is_empty())),
+        served: serve.map(|s| s["Web"].as_object().is_some_and(|sites| sites.values().any(proxies_here))),
+    }
+}
+
 /// This Mac's Tailscale user (`REX_INBOX_OWNER` overrides), and its HTTPS
 /// name on the tailnet.
 pub async fn owner_and_url() -> (Option<String>, Option<String>) {
@@ -211,7 +246,28 @@ pub async fn watch_owner(shared: Shared) {
 
 #[cfg(test)]
 mod tests {
-    use super::host_ok;
+    use super::{host_ok, readiness_of};
+    use serde_json::json;
+
+    #[test]
+    fn readiness_reads_tailscale() {
+        // A new tailnet: MagicDNS and certificates off, nothing served.
+        let off = json!({"CurrentTailnet": {"MagicDNSEnabled": false}, "CertDomains": null});
+        let r = readiness_of(Some(&off), Some(&json!({})), "7430");
+        assert_eq!((r.magic_dns, r.https, r.served), (Some(false), Some(false), Some(false)));
+
+        let on = json!({"CurrentTailnet": {"MagicDNSEnabled": true}, "CertDomains": ["mac.tail1.ts.net"]});
+        let serve = json!({"TCP": {"443": {"HTTPS": true}},
+            "Web": {"mac.tail1.ts.net:443": {"Handlers": {"/": {"Proxy": "http://127.0.0.1:7430"}}}}});
+        let r = readiness_of(Some(&on), Some(&serve), "7430");
+        assert_eq!((r.magic_dns, r.https, r.served), (Some(true), Some(true), Some(true)));
+
+        // Serving something else, on another port.
+        assert_eq!(readiness_of(Some(&on), Some(&serve), "7431").served, Some(false));
+        // Tailscale didn't answer: say nothing.
+        let r = readiness_of(None, None, "7430");
+        assert_eq!((r.magic_dns, r.https, r.served), (None, None, None));
+    }
     use axum::http::{HeaderMap, HeaderValue, header};
 
     fn host(h: &str) -> HeaderMap {

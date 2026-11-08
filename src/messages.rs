@@ -106,6 +106,11 @@ pub async fn dispatch(shared: &Shared, method: &str, params: &Value) -> Result<V
             );
             let rex = shared.lock().rex(&caller.host)?;
             rex.api(Some(&session), "session.set_block_label", &json!({ "block_id": block, "label": name })).await?;
+            // Rex's event for the new label comes later; until then whoami,
+            // ls and sends to the new name would still see the old one.
+            if let Some(p) = shared.lock().hosts.get_mut(&caller.host).and_then(|m| m.panes.get_mut(&block)) {
+                p.label = name.clone();
+            }
             Ok(json!({ "label": name }))
         }
 
