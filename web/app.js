@@ -1,22 +1,61 @@
 "use strict";
 
 // Rex Inbox on the phone: the hub's methods over /api/call, live updates
-// over /api/events, and Web Push for what needs you.
+// over /api/events, and Web Push for what needs you. Cards answer what they
+// can in place; a tap opens a sheet with the rest (the full prompt, the pane's
+// screen, a review as it will post, a reply box).
 
 const state = {
   tab: "inbox",
+  filter: "all",
   alerts: [],
   messages: [],
   panes: [],
+  conn: "wait", // wait | on | off
+  loaded: false,
   showFinished: false,
-  replying: new Set(), // message ids with the reply box open
-  composing: new Set(), // pane keys with the message box open
+  expanded: new Set(), // item ids showing all their text
+  busy: new Map(), // item id -> the action running
   drafts: {},
-  busy: new Set(),
-  pending: false, // a refresh waiting for a text box to lose focus
+  sheet: null, // what the sheet shows: {type: "item"|"message"|"pane"|"menu", ...}
+  hold: 0, // > 0 while a swipe or an animation runs: refreshes wait
+  pending: false,
 };
 
-const main = document.getElementById("main");
+const $ = (id) => document.getElementById(id);
+const main = $("main");
+const sheet = $("sheet");
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ---- icons (24x24, stroked) ----
+
+const PATHS = {
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  x: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
+  hand: '<path d="M18 11V6.5a1.75 1.75 0 0 0-3.5 0V11"/><path d="M14.5 10V4.75a1.75 1.75 0 0 0-3.5 0V10"/><path d="M11 10.5V6a1.75 1.75 0 0 0-3.5 0v8"/><path d="M18 8.5a1.75 1.75 0 0 1 3.5 0V14a8 8 0 0 1-8 8h-1.6c-2.4 0-3.9-.8-5.3-2.2l-3.4-3.5a1.8 1.8 0 0 1 2.6-2.5L7.5 15.5"/>',
+  question: '<path d="M21 11.5a8.5 8.5 0 0 1-12.6 7.4L3.5 20.5l1.6-4.6A8.5 8.5 0 1 1 21 11.5z"/><path d="M9.8 9.2a2.3 2.3 0 0 1 4.4.8c0 1.5-2.2 1.9-2.2 3.2"/><path d="M12 16.3h.01"/>',
+  key: '<circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3L20 3M16.5 6.5l3 3M14 9l2 2"/>',
+  failed: '<path d="M8 2.5h8l5.5 5.5v8L16 21.5H8L2.5 16V8z"/><path d="M15 9l-6 6M9 9l6 6"/>',
+  done: '<circle cx="12" cy="12" r="9.25"/><path d="M8 12.4l2.8 2.8L16.2 9.6"/>',
+  mail: '<rect x="2.75" y="5" width="18.5" height="14" rx="3"/><path d="M3.5 7.5l8.5 6 8.5-6"/>',
+  mailOpen: '<path d="M2.75 10l9.25-6.5 9.25 6.5v7.5a3 3 0 0 1-3 3H5.75a3 3 0 0 1-3-3z"/><path d="M3.5 10.5l8.5 6 8.5-6"/>',
+  inbox: '<path d="M2.75 13.5h5l1.75 2.75h5l1.75-2.75h5"/><path d="M5.6 5.3A2 2 0 0 1 7.4 4.25h9.2a2 2 0 0 1 1.8 1.05l2.85 5.6v6.85a2 2 0 0 1-2 2H4.75a2 2 0 0 1-2-2v-6.85z"/>',
+  agents: '<rect x="2.75" y="4" width="18.5" height="16" rx="3.5"/><path d="M7 9.5l3 2.5-3 2.5M12.5 15h4.5"/>',
+  more: '<circle cx="5.5" cy="12" r="1.6" class="f"/><circle cx="12" cy="12" r="1.6" class="f"/><circle cx="18.5" cy="12" r="1.6" class="f"/>',
+  clock: '<circle cx="12" cy="12" r="9.25"/><path d="M12 7v5.2l3.2 2"/>',
+  doc: '<path d="M14 2.75H7.25a2 2 0 0 0-2 2v14.5a2 2 0 0 0 2 2h9.5a2 2 0 0 0 2-2V7.5z"/><path d="M14 2.75V7.5h4.75M8.75 12.5h6.5M8.75 16.5h4.5"/>',
+  send: '<path d="M12 19.5V5M6 11l6-6 6 6"/>',
+  reply: '<path d="M9.5 14.5L4.5 9.5l5-5"/><path d="M4.5 9.5h10a5.5 5.5 0 0 1 0 11h-3"/>',
+  bell: '<path d="M6 9a6 6 0 1 1 12 0c0 6.5 2.75 8.5 2.75 8.5H3.25S6 15.5 6 9"/><path d="M10.2 21a2 2 0 0 0 3.6 0"/>',
+  chevron: '<path d="M9.5 5.5l6.5 6.5-6.5 6.5"/>',
+  refresh: '<path d="M20.25 12a8.25 8.25 0 1 1-2.4-5.8"/><path d="M20.25 3.75v5h-5"/>',
+  wrap: '<path d="M3.5 6h17M3.5 12h14a3 3 0 0 1 0 6H12"/><path d="M14 15.5l-2.5 2.5 2.5 2.5M3.5 18h5"/>',
+  wifi: '<path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.75 16a5 5 0 0 1 6.5 0"/><path d="M12 19.5h.01"/>',
+};
+function ic(name, cls = "") {
+  const p = (PATHS[name] || "").replace(/class="f"/g, 'fill="currentColor" stroke="none"');
+  return `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${p}</svg>`;
+}
 
 // ---- the hub ----
 
@@ -38,30 +77,49 @@ async function refresh() {
     state.alerts = inbox.alerts;
     state.messages = inbox.messages;
     state.panes = panes;
-    render();
+    state.loaded = true;
+    state.problem = null;
+    if (state.conn !== "on" && events && events.readyState === 1) state.conn = "on";
   } catch (e) {
-    document.getElementById("summary").textContent = "Not connected";
-    notice(`<p>${esc(e.message)}</p>`);
+    state.conn = "off";
+    state.problem = e.message;
   }
+  render();
 }
 
 let timer = null;
-function soon() {
+function soon(delay = 150) {
   clearTimeout(timer);
   timer = setTimeout(() => {
-    // Don't redraw under someone typing.
-    if (document.activeElement && document.activeElement.tagName === "TEXTAREA") {
+    // Don't redraw under a finger, or under someone typing in the list.
+    if (state.hold > 0 || main.contains(document.activeElement)) {
       state.pending = true;
       return;
     }
     refresh();
-  }, 150);
+  }, delay);
+}
+function release() {
+  state.hold = Math.max(0, state.hold - 1);
+  if (!state.hold && state.pending) {
+    state.pending = false;
+    soon();
+  }
 }
 
+let events = null;
 function live() {
-  const es = new EventSource("/api/events");
-  es.onmessage = soon;
-  es.onopen = soon;
+  if (events && events.readyState !== 2) return;
+  events = new EventSource("/api/events");
+  events.onmessage = () => soon();
+  events.onopen = () => {
+    state.conn = "on";
+    soon(0);
+  };
+  events.onerror = () => {
+    state.conn = events.readyState === 2 ? "off" : "wait";
+    paintSummary();
+  };
 }
 
 // ---- formatting ----
@@ -77,18 +135,21 @@ function when(ts) {
   return isNaN(d) ? null : d;
 }
 
-function age(ts) {
+function age(ts, long = false) {
   const d = when(ts);
   if (!d) return "";
   const s = Math.max(0, Math.floor((Date.now() - d) / 1000));
-  if (s < 60) return `${s}s`;
-  if (s < 3600) return `${Math.floor(s / 60)}m`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h`;
-  return `${Math.floor(s / 86400)}d`;
+  let a;
+  if (s < 60) a = long ? "just now" : "now";
+  else if (s < 3600) a = `${Math.floor(s / 60)}m`;
+  else if (s < 86400) a = `${Math.floor(s / 3600)}h`;
+  else a = `${Math.floor(s / 86400)}d`;
+  return long && s >= 60 ? `${a} ago` : a;
 }
 
 const tilde = (p) => (p ? String(p).replace(/^\/Users\/[^/]+/, "~") : "");
 const shortId = (id) => String(id || "").split(/[-:]/).pop().slice(-6);
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 function appName(a) {
   return { "claude-code": "Claude Code", codex: "Codex", "rex-reviewer": "Rex Reviewer" }[a] || a || "A program";
@@ -108,6 +169,7 @@ function headline(a) {
   const app = appName(a.app);
   if (a.category === "failed") return `${app} failed`;
   if (a.category === "finished") return `${app} finished`;
+  if (a.app === "rex-reviewer" && a.kind === "permission") return "Review ready to post";
   return { permission: `${app} needs your approval`, question: `${app} has a question`, auth: `${app} needs you to sign in` }[a.kind] || `${app} needs you`;
 }
 
@@ -115,271 +177,899 @@ const what = (x) => [x.title, x.msg].filter(Boolean).join(": ");
 // The hub says what an item can be answered with: approve and deny (named
 // Approve and Deny, or Post and Dismiss for a review), and preview.
 const answers = (a) => a.answers || [];
-const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const decisions = (a) => answers(a).filter((x) => x.action !== "preview");
+const canPreview = (a) => answers(a).some((x) => x.action === "preview");
+const isReview = (a) => a.app === "rex-reviewer";
+const isCommand = (a) => a.category === "needs_you" && a.kind === "permission" && !isReview(a);
 
-// ---- views ----
+function alertLook(a) {
+  if (a.category === "failed") return ["failed", "t-red"];
+  if (a.category === "finished") return ["done", "t-green"];
+  return [{ permission: isReview(a) ? "doc" : "hand", question: "question", auth: "key" }[a.kind] || "hand", "t-orange"];
+}
 
-function render() {
+const STATE_TINT = { blocked: "t-orange", error: "t-red", working: "t-blue", done: "t-green" };
+const tint = (s) => STATE_TINT[s] || "t-gray";
+
+function messageFrom(m) {
+  return m.from_block ? m.from_addr : "you";
+}
+
+const paneKey = (p) => `${p.host}|${p.block_id}`;
+const paneName = (p) => p.label || shortId(p.block_id);
+const paneSession = (p) => p.session_label || shortId(p.session_id);
+
+// Markdown's common parts, for a review as it will post: paragraphs, bullets,
+// headings, rules, bold, italics, code and links (shown as text).
+function md(text) {
+  const inline = (s) =>
+    esc(s)
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+      .replace(/(^|[^*\w])\*([^*\n]+)\*/g, "$1<i>$2</i>")
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+  const out = [];
+  let para = [];
+  let list = [];
+  const flush = () => {
+    if (para.length) out.push(`<p>${para.map(inline).join(" ")}</p>`);
+    if (list.length) out.push(`<ul>${list.map((l) => `<li>${inline(l)}</li>`).join("")}</ul>`);
+    para = [];
+    list = [];
+  };
+  const lines = String(text || "").split("\n");
+  const lastRule = lines.map((l) => l.trim()).lastIndexOf("---");
+  lines.forEach((raw, i) => {
+    const l = raw.trimEnd();
+    if (/^\s*(---|\*\*\*|___)\s*$/.test(l)) {
+      flush();
+      out.push(i === lastRule ? '<hr><div class="foot">' : "<hr>");
+    } else if (/^#{1,6}\s/.test(l)) {
+      flush();
+      out.push(`<h4>${inline(l.replace(/^#+\s*/, ""))}</h4>`);
+    } else if (/^\s*[-*+]\s+/.test(l)) {
+      if (para.length) flush();
+      list.push(l.replace(/^\s*[-*+]\s+/, ""));
+    } else if (!l.trim()) {
+      flush();
+    } else if (list.length && /^\s{2,}/.test(raw)) {
+      list[list.length - 1] += " " + l.trim();
+    } else {
+      if (list.length) flush();
+      para.push(l);
+    }
+  });
+  flush();
+  if (lastRule >= 0) out.push("</div>");
+  return out.join("");
+}
+
+// ---- the page ----
+
+function counts() {
   const needs = state.alerts.filter((a) => a.category === "needs_you");
   const failed = state.alerts.filter((a) => a.category === "failed");
   const finished = state.alerts.filter((a) => a.category === "finished");
-  const parts = [];
-  if (needs.length) parts.push(`${needs.length} need${needs.length === 1 ? "s" : ""} you`);
-  if (state.messages.length) parts.push(plural(state.messages.length, "message"));
-  if (failed.length) parts.push(`${failed.length} failed`);
-  if (!parts.length) parts.push("All clear");
-  parts.push(plural(state.panes.length, "agent"));
-  document.getElementById("summary").textContent = parts.join(" · ");
+  return { needs, failed, finished, messages: state.messages };
+}
+
+function paintSummary() {
+  const { needs, failed, messages } = counts();
+  const dot = document.querySelector("#summary .dot");
+  let text;
+  if (state.conn === "off") {
+    text = state.loaded ? "Can't reach your Mac" : "Not connected";
+    dot.className = "dot off";
+  } else if (!state.loaded) {
+    text = "Connecting…";
+    dot.className = "dot wait";
+  } else {
+    const parts = [];
+    const working = state.panes.filter((p) => p.state === "working").length;
+    if (state.tab === "agents") {
+      parts.push(plural(state.panes.length, "agent"));
+      if (working) parts.push(`${working} working`);
+      const waiting = state.panes.filter((p) => p.state === "blocked").length;
+      if (waiting) parts.push(`${waiting} waiting on you`);
+    } else {
+      if (needs.length) parts.push(`${needs.length} need${needs.length === 1 ? "s" : ""} you`);
+      if (messages.length) parts.push(plural(messages.length, "message"));
+      if (failed.length) parts.push(`${failed.length} failed`);
+      if (!parts.length) parts.push("All clear", working ? `${working} working` : plural(state.panes.length, "agent"));
+    }
+    text = parts.join(" · ");
+    dot.className = state.conn === "on" ? "dot" : "dot wait";
+  }
+  $("summary-text").textContent = text;
   document.title = needs.length ? `(${needs.length}) Rex Inbox` : "Rex Inbox";
-
-  main.innerHTML = state.tab === "inbox" ? inboxView(needs, failed, finished) : agentsView();
-  for (const t of main.querySelectorAll("textarea[data-draft]")) t.value = state.drafts[t.dataset.draft] || "";
 }
 
-function section(title, count, inner) {
-  return `<h2>${esc(title)} <span class="count">${count}</span></h2>${inner}`;
+function render() {
+  const c = counts();
+  const title = state.tab === "inbox" ? "Inbox" : "Agents";
+  $("title").textContent = title;
+  $("topbar-title").textContent = title;
+  paintSummary();
+  paintTabbar(c);
+  paintFilters(c);
+  paintNotice();
+  if (!main.contains(document.activeElement)) {
+    main.innerHTML = state.tab === "inbox" ? inboxView(c) : agentsView();
+    markClamped(main);
+  }
+  if (state.sheet) refreshSheet();
 }
 
-function inboxView(needs, failed, finished) {
+function paintTabbar(c) {
+  const bar = $("tabbar");
+  if (!bar.firstChild) {
+    bar.innerHTML = [
+      ["inbox", "inbox", "Inbox"],
+      ["agents", "agents", "Agents"],
+    ]
+      .map(([tab, icon, label]) => `<button role="tab" data-tab="${tab}">${ic(icon)}<span>${label}</span><b class="count" hidden></b></button>`)
+      .join("");
+  }
+  for (const b of bar.querySelectorAll("button")) {
+    const on = b.dataset.tab === state.tab;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-selected", on);
+  }
+  const badge = bar.querySelector('[data-tab="inbox"] .count');
+  const n = c.needs.length + c.messages.length;
+  badge.hidden = !n;
+  badge.textContent = n > 99 ? "99+" : n;
+}
+
+const FILTERS = [
+  ["all", "All"],
+  ["needs", "Needs You"],
+  ["messages", "Messages"],
+  ["failed", "Failed"],
+  ["finished", "Finished"],
+];
+
+function paintFilters(c) {
+  const el = $("filters");
+  const n = { needs: c.needs.length, messages: c.messages.length, failed: c.failed.length, finished: c.finished.length };
+  n.all = n.needs + n.messages + n.failed + n.finished;
+  const kinds = FILTERS.filter(([k]) => k !== "all" && n[k] > 0).length;
+  if (state.filter !== "all" && !n[state.filter]) state.filter = "all";
+  el.hidden = state.tab !== "inbox" || kinds < 2;
+  if (el.hidden) return;
+  el.innerHTML = FILTERS.filter(([k]) => k === "all" || n[k] > 0 || k === state.filter)
+    .map(([k, label]) => `<button class="chip ${state.filter === k ? "on" : ""}" data-filter="${k}">${label} <span class="n">${n[k]}</span></button>`)
+    .join("");
+}
+
+function inboxView(c) {
+  if (!state.loaded) return state.conn === "off" ? offline() : "";
   if (!state.alerts.length && !state.messages.length) {
-    return `<div class="empty"><div class="big">✓</div><h3>Nothing needs you</h3>Blocked, failed, and finished agents show up here, with messages to you.</div>`;
+    const working = state.panes.filter((p) => p.state === "working").length;
+    const detail = working
+      ? `${plural(working, "agent")} working. You'll hear when one needs you.`
+      : "Blocked, failed and finished agents show up here, with messages to you.";
+    return empty("done", "t-green", "Nothing needs you", detail);
+  }
+  const list = (items, card) => items.map(card).join("");
+  switch (state.filter) {
+    case "needs":
+      return list(c.needs, alertCard);
+    case "messages":
+      return list(c.messages, messageCard);
+    case "failed":
+      return list(c.failed, alertCard);
+    case "finished":
+      return list(c.finished, alertCard);
   }
   let html = "";
-  if (needs.length) html += section("Needs you", needs.length, needs.map(alertCard).join(""));
-  if (state.messages.length) html += section("Messages", state.messages.length, state.messages.map(messageCard).join(""));
-  if (failed.length) html += section("Failed", failed.length, failed.map(alertCard).join(""));
-  if (finished.length) {
-    html += `<h2><button data-act="toggle-finished">Finished <span class="count">${finished.length}</span> ${state.showFinished ? "▾" : "▸"}</button></h2>`;
-    if (state.showFinished) html += finished.map(alertCard).join("");
+  if (c.needs.length) html += section("Needs you", c.needs.length) + list(c.needs, alertCard);
+  if (c.messages.length) html += section("Messages", c.messages.length) + list(c.messages, messageCard);
+  if (c.failed.length) html += section("Failed", c.failed.length) + list(c.failed, alertCard);
+  if (c.finished.length) {
+    html += `<h2><button data-act="toggle-finished" class="${state.showFinished ? "open" : ""}">Finished <span class="n">${c.finished.length}</span>${ic("chevron")}</button></h2>`;
+    if (state.showFinished) html += list(c.finished, alertCard);
   }
   return html;
 }
 
-function alertCard(a) {
+const section = (title, n) => `<h2>${esc(title)} <span class="n">${n}</span></h2>`;
+
+function empty(icon, tone, title, detail) {
+  return `<div class="empty"><div class="halo ${tone}">${ic(icon)}</div><h3>${esc(title)}</h3><p>${esc(detail)}</p></div>`;
+}
+
+function offline() {
+  return empty("wifi", "t-gray", "Can't reach your Mac", "Check that the Mac is awake and on your tailnet, and that the rex-inbox hub is running. This page reconnects by itself.");
+}
+
+function busyLabel(id, action, label, icon) {
+  return state.busy.get(id) === action ? '<span class="spin"></span>' : `${icon ? ic(icon) : ""}${esc(label)}`;
+}
+
+function decisionButtons(a, size = "") {
   const busy = state.busy.has(a.id) ? "disabled" : "";
-  const w = what(a);
-  let body = "";
-  if (w) body = a.category === "needs_you" ? `<div class="code">${esc(w)}</div>` : `<div class="what">${esc(w)}</div>`;
-  const style = { approve: "btn approve", deny: "btn deny" };
-  const answer = answers(a)
-    .map((x) => `<button class="${style[x.action] || "btn"}" data-act="${esc(x.action)}" data-id="${a.id}" ${busy}>${esc(x.label)}</button>`)
+  return decisions(a)
+    .map((x) => {
+      const approve = x.action === "approve";
+      return `<button class="btn wide ${size} ${approve ? "approve" : "deny"}" data-act="answer" data-action="${esc(x.action)}" data-id="${a.id}" ${busy}>${busyLabel(a.id, x.action, x.label, approve ? "check" : "x")}</button>`;
+    })
     .join("");
-  // A review's item comes from rex-reviewer's watcher, whose pane says little.
-  const screen = a.app === "rex-reviewer" ? "" : `<button class="btn" data-act="screen" data-id="${a.id}">Show pane</button>`;
-  const snooze = a.category === "needs_you" ? `<button class="btn" data-act="snooze" data-id="${a.id}" ${busy}>Snooze 1h</button>` : "";
-  return `<div class="card" id="item-${a.id}">
-    <div class="row"><span class="icon c-${esc(a.category)}">●</span><span class="head">${esc(headline(a))}</span><span class="age">${age(a.created_at)}</span></div>
-    <div class="meta">#${a.id} · ${esc(place(a))}${a.cwd ? " · " + esc(tilde(a.cwd)) : ""}</div>
-    ${body}
-    <div class="actions">${answer}${screen}<span class="spacer"></span>${snooze}<button class="btn" data-act="done" data-id="${a.id}" ${busy}>Done</button></div>
-  </div>`;
+}
+
+// What an item says: its title (less the PR the meta line already names) over
+// its message, in a box when it waits on you (a command in monospace).
+function alertBody(a, clamp) {
+  let title = a.title || "";
+  const ref = String(a.subject || "").split(/\s/)[0];
+  if (ref && title.startsWith(ref + " ")) title = title.slice(ref.length + 1);
+  const text = a.msg || title;
+  if (!text) return "";
+  const cut = clamp && !state.expanded.has(a.id) ? "clamp" : "";
+  const mark = clamp ? `data-clamp="${a.id}"` : "";
+  const head = a.msg && title ? `<div class="subject">${esc(title)}</div>` : "";
+  return (
+    head +
+    (a.category === "needs_you"
+      ? `<div class="what ${isCommand(a) ? "code" : ""} ${cut}" ${mark}>${esc(text)}</div>`
+      : `<div class="prose ${cut}" ${mark}>${esc(text)}</div>`)
+  );
+}
+
+function alertCard(a) {
+  const [icon, tone] = alertLook(a);
+  const busy = state.busy.has(a.id) ? "disabled" : "";
+  const body = alertBody(a, true);
+  let actions;
+  if (decisions(a).length) {
+    actions = decisionButtons(a) + `<button class="btn circle" data-act="menu" data-id="${a.id}" aria-label="More">${ic("more")}</button>`;
+  } else if (a.category === "needs_you") {
+    actions = `<button class="btn wide quiet" data-act="open" data-id="${a.id}">${ic("agents")}Show pane</button><button class="btn circle" data-act="menu" data-id="${a.id}" aria-label="More">${ic("more")}</button>`;
+  } else {
+    actions = `<button class="btn wide quiet" data-act="open" data-id="${a.id}">${ic("agents")}Show pane</button><button class="btn wide" data-act="done" data-id="${a.id}" ${busy}>${busyLabel(a.id, "done", "Done", "check")}</button>`;
+  }
+  return swipeable(a.id, a.category === "needs_you", `
+    <article class="card" id="item-${a.id}" data-open="${a.id}">
+      <div class="top">
+        <div class="badge-icon ${tone}">${ic(icon)}</div>
+        <div class="titles">
+          <div class="head"><b>${esc(headline(a))}</b><span class="age">${age(a.created_at)}</span></div>
+          <div class="meta">${esc(place(a))}${a.cwd ? " · " + esc(tilde(a.cwd)) : ""}</div>
+        </div>
+      </div>
+      ${body}
+      <div class="actions">${actions}</div>
+    </article>`);
 }
 
 function messageCard(m) {
-  const from = m.from_block ? m.from_addr : "you";
+  const from = messageFrom(m);
+  const unread = m.status === "unread";
+  const open = state.expanded.has(m.id);
   const busy = state.busy.has(m.id) ? "disabled" : "";
-  const replying = state.replying.has(m.id);
-  return `<div class="card" id="item-${m.id}">
-    <div class="row"><span class="icon c-message">●</span><span class="head">${esc(from)}</span><span class="age">#${m.id} · ${age(m.created_at)}</span></div>
-    ${m.subject ? `<div class="subject">${esc(m.subject)}</div>` : ""}
-    <div class="body">${esc(m.body)}</div>
-    ${replying ? `<textarea data-draft="m${m.id}" rows="2" placeholder="Reply to ${esc(from)}…"></textarea>` : ""}
-    <div class="actions">
-      <button class="btn primary" data-act="${replying ? "reply-send" : "reply-open"}" data-id="${m.id}" ${busy}>${replying ? "Send" : "Reply"}</button>
-      <span class="spacer"></span>
-      <button class="btn" data-act="done" data-id="${m.id}" ${busy}>Done</button>
-    </div>
-  </div>`;
+  const meta = [m.reply_to ? `replying to #${m.reply_to}` : "", `#${m.id}`].filter(Boolean).join(" · ");
+  return swipeable(m.id, false, `
+    <article class="card" id="item-${m.id}" data-open="${m.id}">
+      <div class="top">
+        <div class="badge-icon ${unread ? "t-blue" : "t-gray"}">${ic(unread ? "mail" : "mailOpen")}</div>
+        <div class="titles">
+          <div class="head"><b>${esc(from)}</b><span class="age">${age(m.created_at)}</span></div>
+          <div class="meta">${esc(meta)}</div>
+        </div>
+      </div>
+      ${m.subject ? `<div class="subject">${esc(m.subject)}</div>` : ""}
+      <div class="prose ${open ? "" : "clamp"}" data-clamp="${m.id}" ${m.subject ? 'style="margin-top:4px"' : ""}>${esc(m.body)}</div>
+      <div class="actions">
+        <button class="btn wide primary" data-act="reply" data-id="${m.id}">${ic("reply")}Reply</button>
+        <button class="btn wide" data-act="done" data-id="${m.id}" ${busy}>${busyLabel(m.id, "done", "Done", "check")}</button>
+      </div>
+    </article>`);
+}
+
+function swipeable(id, snooze, card) {
+  const acts =
+    (snooze ? `<button class="s-snooze" data-act="snooze" data-for="1h" data-id="${id}">${ic("clock")}1 hour</button>` : "") +
+    `<button class="s-done" data-act="done" data-id="${id}">${ic("check")}Done</button>`;
+  return `<div class="swipe" id="w-${id}" data-swipe="${id}"><div class="swipe-acts">${acts}</div>${card}</div>`;
+}
+
+// Clamped text gets a "More" when it's cut off.
+function markClamped(root) {
+  for (const el of root.querySelectorAll("[data-clamp].clamp")) {
+    if (el.scrollHeight > el.clientHeight + 2) {
+      el.insertAdjacentHTML("afterend", `<button class="more" data-act="expand" data-id="${el.dataset.clamp}">More</button>`);
+    }
+  }
 }
 
 function agentsView() {
-  if (!state.panes.length) {
-    return `<div class="empty"><h3>No agents running</h3>Claude Code and Codex panes in Rex show up here.</div>`;
-  }
+  if (!state.loaded) return state.conn === "off" ? offline() : "";
+  if (!state.panes.length) return empty("agents", "t-gray", "No agents running", "Claude Code and Codex panes in Rex show up here.");
   const groups = {};
-  for (const p of state.panes) (groups[p.session_label || shortId(p.session_id)] ||= []).push(p);
+  for (const p of state.panes) (groups[paneSession(p)] ||= []).push(p);
   return Object.keys(groups)
     .sort()
-    .map((s) => section(s, groups[s].length, groups[s].map(paneCard).join("")))
+    .map((s) => section(s, groups[s].length) + `<div class="group">${groups[s].map(agentRow).join("")}</div>`)
     .join("");
 }
 
-function paneCard(p) {
-  const key = `${p.host}|${p.block_id}`;
-  const composing = state.composing.has(key);
-  const state_ = p.state || "";
-  const label = p.kind ? `${state_} · ${p.kind}` : state_ || "unknown";
+function agentRow(p) {
   const activity = p.title || p.msg;
   const kids = p.working_children ? ` · +${plural(p.working_children, "subagent")}` : "";
-  return `<div class="card">
-    <div class="row"><span class="head">${esc(p.label || shortId(p.block_id))} <span class="age">${esc(appName(p.app))}${kids}</span></span><span class="pill s-${esc(state_)}">${esc(label)}</span><span class="age">${age(p.since)}</span></div>
-    <div class="meta">${esc(tilde(p.cwd))}</div>
-    ${activity ? `<div class="what">${esc(activity)}</div>` : ""}
-    ${composing ? `<textarea data-draft="p${esc(key)}" rows="2" placeholder="Message ${esc(place(p))}…"></textarea>` : ""}
-    <div class="actions">
-      <button class="btn" data-act="pane-screen" data-host="${esc(p.host)}" data-block="${esc(p.block_id)}">Show pane</button>
-      <button class="btn ${composing ? "primary" : ""}" data-act="${composing ? "compose-send" : "compose"}" data-key="${esc(key)}">${composing ? "Send" : "Message"}</button>
+  const label = p.kind && p.state === "blocked" ? p.kind : p.state || "unknown";
+  return `<button class="arow" data-act="pane" data-key="${esc(paneKey(p))}">
+    <div class="badge-icon ${tint(p.state)}">${ic("agents")}</div>
+    <div class="main">
+      <div class="name">${esc(paneName(p))}<small>${esc(appName(p.app))}${kids}</small></div>
+      <div class="sub">${esc(activity || tilde(p.cwd))}</div>
     </div>
-  </div>`;
+    <div class="side"><span class="state ${tint(p.state)}">${esc(label)}</span><span class="age">${age(p.since)}</span></div>
+    <span class="chev">${ic("chevron")}</span>
+  </button>`;
 }
 
-// ---- actions ----
+// ---- notice: notifications, or a problem ----
 
-function toast(text, bad = false) {
-  const t = document.getElementById("toast");
-  t.textContent = text;
-  t.className = bad ? "bad" : "";
-  t.hidden = false;
-  clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => (t.hidden = true), bad ? 6000 : 3500);
+let noticeHtml = "";
+function notice(html) {
+  noticeHtml = html;
+  paintNotice();
+}
+function paintNotice() {
+  const el = $("notice");
+  if (el.innerHTML !== noticeHtml) el.innerHTML = noticeHtml;
 }
 
-async function act(id, work) {
-  state.busy.add(id);
-  render();
-  try {
-    await work();
-  } catch (e) {
-    toast(e.message, true);
-  } finally {
-    state.busy.delete(id);
-    await refresh();
+// ---- sheets ----
+
+let scrollY0 = 0;
+function lock(on) {
+  const b = document.body;
+  if (on && !b.classList.contains("locked")) {
+    // Keep the list where it was under the sheet; iOS ignores overflow: hidden.
+    scrollY0 = window.scrollY;
+    b.style.position = "fixed";
+    b.style.top = `-${scrollY0}px`;
+    b.style.left = b.style.right = "0";
+    b.classList.add("locked");
+  } else if (!on && b.classList.contains("locked")) {
+    b.classList.remove("locked");
+    b.style.position = b.style.top = b.style.left = b.style.right = "";
+    window.scrollTo(0, scrollY0);
   }
 }
 
-// A pane's screen opens at its bottom, where the prompt is; a review at its top.
-function showSheet(title, text, fromTop = false) {
-  document.getElementById("sheet-title").textContent = title;
-  const pre = document.getElementById("sheet-body");
-  pre.textContent = text;
-  const d = document.getElementById("sheet");
-  d.showModal();
-  pre.scrollTop = fromTop ? 0 : pre.scrollHeight;
+function openSheet(spec) {
+  state.sheet = spec;
+  sheet.style.removeProperty("--drag");
+  sheet.innerHTML = sheetHtml(spec);
+  markClamped(sheet);
+  lock(true);
+  $("scrim").classList.add("show");
+  requestAnimationFrame(() => sheet.classList.add("show"));
+  sheetLoad(spec);
+  if (spec.focus) setTimeout(() => sheet.querySelector("textarea")?.focus(), 380);
 }
 
-main.addEventListener("input", (e) => {
-  if (e.target.dataset.draft) state.drafts[e.target.dataset.draft] = e.target.value;
-});
-main.addEventListener("focusout", () => {
+function closeSheet() {
+  if (!state.sheet) return;
+  document.activeElement?.blur?.();
+  state.sheet = null;
+  sheet.classList.remove("show");
+  $("scrim").classList.remove("show");
+  lock(false);
+  setTimeout(() => {
+    if (!state.sheet) sheet.innerHTML = "";
+  }, 400);
   if (state.pending) {
     state.pending = false;
     soon();
   }
+}
+
+const findAlert = (id) => state.alerts.find((a) => a.id === id);
+const findMessage = (id) => state.messages.find((m) => m.id === id);
+const findPane = (key) => state.panes.find((p) => paneKey(p) === key);
+
+function sheetHead(icon, tone, title, sub) {
+  return `<div class="grab"></div>
+    <div class="sheet-head">
+      ${icon ? `<div class="badge-icon ${tone}">${ic(icon)}</div>` : ""}
+      <div class="titles"><b id="sheet-title">${esc(title)}</b>${sub ? `<span>${esc(sub)}</span>` : ""}</div>
+      <button class="btn circle small" data-close aria-label="Close">${ic("x")}</button>
+    </div>`;
+}
+
+function sheetHtml(s) {
+  if (s.type === "item") {
+    const a = findAlert(s.id) || s.alert;
+    const [icon, tone] = alertLook(a);
+    let body = alertBody(a, false);
+    if (canPreview(a)) {
+      body += `<div class="label">The review, as it will post</div><div class="md" id="preview"><span class="hint">Loading…</span></div>`;
+    } else {
+      body += termBlock();
+    }
+    return `${sheetHead(icon, tone, headline(a), [place(a), age(a.created_at, true)].join(" · "))}
+      <div class="sheet-body">${body}</div>
+      <div class="sheet-foot" id="sheet-foot">${itemFoot(s)}</div>`;
+  }
+  if (s.type === "message") {
+    const m = findMessage(s.id) || s.message;
+    const from = messageFrom(m);
+    return `${sheetHead("mail", "t-blue", from, [`#${m.id}`, age(m.created_at, true)].join(" · "))}
+      <div class="sheet-body">
+        ${m.subject ? `<div class="subject" style="margin-top:0">${esc(m.subject)}</div>` : ""}
+        <div class="prose" ${m.subject ? 'style="margin-top:4px"' : ""}>${esc(m.body)}</div>
+      </div>
+      <div class="sheet-foot" id="sheet-foot">${composer(`m${m.id}`, `Reply to ${from}…`, "reply-send", m.id)}</div>`;
+  }
+  if (s.type === "pane") {
+    const p = findPane(s.key) || s.pane;
+    const activity = p.title || p.msg;
+    return `${sheetHead("agents", tint(p.state), paneName(p), paneSub(p))}
+      <div class="sheet-body">
+        ${activity ? `<div class="prose" style="margin-top:0">${esc(activity)}</div>` : ""}
+        <div class="meta" style="margin-top:6px">${esc(paneSession(p))} · ${esc(tilde(p.cwd))}</div>
+        ${termBlock()}
+      </div>
+      <div class="sheet-foot" id="sheet-foot">${composer(`p${s.key}`, `Message ${paneName(p)}…`, "pane-send", s.key)}<div class="hint">It goes in when the agent is idle.</div></div>`;
+  }
+  if (s.type === "menu") {
+    const a = findAlert(s.id) || s.alert;
+    const rows = [];
+    rows.push(canPreview(a) ? ["doc", "Preview the review", "open"] : ["agents", "Show the pane", "open"]);
+    const group2 = [];
+    if (a.category === "needs_you") {
+      group2.push(["clock", "Snooze 1 hour", "snooze", "1h"], ["clock", "Snooze 4 hours", "snooze", "4h"], ["clock", "Snooze until tomorrow", "snooze", "1d"]);
+    }
+    const group3 = [["check", "Mark done", "done"]];
+    const menu = (items) =>
+      `<div class="menu">${items.map(([icon, label, act, f]) => `<button data-act="${act}" data-id="${a.id}" ${f ? `data-for="${f}"` : ""}>${ic(icon)}${esc(label)}</button>`).join("")}</div>`;
+    return `${sheetHead(...alertLook(a), headline(a), place(a))}
+      <div class="sheet-body">${menu(rows)}${group2.length ? menu(group2) : ""}${menu(group3)}</div>`;
+  }
+  return "";
+}
+
+function paneSub(p) {
+  const label = p.kind && p.state === "blocked" ? `${p.state} · ${p.kind}` : p.state || "unknown";
+  return [appName(p.app), label, age(p.since)].filter(Boolean).join(" · ");
+}
+
+function termBlock() {
+  return `<div class="label">Pane<span class="grow"></span><button data-act="wrap">${ic("wrap")}Wrap</button><button data-act="screen-refresh">${ic("refresh")}Refresh</button></div>
+    <pre class="term loading" id="term">Loading…</pre>`;
+}
+
+function composer(draft, placeholder, act, id) {
+  const has = (state.drafts[draft] || "").trim();
+  return `<div class="composer">
+    <textarea rows="1" data-draft="${esc(draft)}" placeholder="${esc(placeholder)}" enterkeyhint="enter">${esc(state.drafts[draft] || "")}</textarea>
+    <button class="btn circle" data-act="${act}" data-id="${esc(id)}" aria-label="Send" ${has ? "" : "disabled"}>${state.busy.has(id) ? '<span class="spin"></span>' : ic("send")}</button>
+  </div>`;
+}
+
+function itemFoot(s) {
+  const a = findAlert(s.id);
+  if (!a) return `<div class="gone">${ic("done")}This no longer waits for you.</div>`;
+  const busy = state.busy.has(a.id) ? "disabled" : "";
+  let html = "";
+  if (decisions(a).length) html += `<div class="actions">${decisionButtons(a)}</div>`;
+  const snooze =
+    a.category === "needs_you"
+      ? [["1h", "1h"], ["4h", "4h"], ["1d", "Tomorrow"]]
+          .map(([f, l]) => `<button class="btn small quiet" data-act="snooze" data-for="${f}" data-id="${a.id}" ${busy}>${l}</button>`)
+          .join("")
+      : "";
+  html += `<div class="actions">${snooze ? `<span class="lead" aria-label="Snooze">${ic("clock")}</span>${snooze}` : ""}<span class="grow"></span><button class="btn small" data-act="done" data-id="${a.id}" ${busy}>${busyLabel(a.id, "done", "Done", "check")}</button></div>`;
+  return html;
+}
+
+// After a refresh: the sheet's footer follows the item; its body stays put.
+function refreshSheet() {
+  const s = state.sheet;
+  if (sheet.contains(document.activeElement) && document.activeElement.tagName === "TEXTAREA") return;
+  if (s.type === "item") {
+    const foot = $("sheet-foot");
+    if (foot) foot.innerHTML = itemFoot(s);
+  } else if (s.type === "pane") {
+    const p = findPane(s.key);
+    const sub = sheet.querySelector(".sheet-head .titles span");
+    if (p && sub) sub.textContent = paneSub(p);
+  } else if (s.type === "menu" && !findAlert(s.id)) {
+    closeSheet();
+  } else if (s.type === "message" && !findMessage(s.id) && !state.busy.has(s.id)) {
+    const foot = $("sheet-foot");
+    if (foot) foot.innerHTML = `<div class="gone">${ic("done")}Answered or filed.</div>`;
+  }
+}
+
+async function sheetLoad(s, quiet = false) {
+  try {
+    if (s.type === "item") {
+      const a = findAlert(s.id) || s.alert;
+      if (canPreview(a)) {
+        const { text } = await call("preview", { id: s.id });
+        if (state.sheet === s) $("preview").innerHTML = md(text);
+        return;
+      }
+      const { text } = await call("screen", { id: s.id, lines: 80 });
+      showTerm(s, text, quiet);
+    } else if (s.type === "pane") {
+      const p = findPane(s.key) || s.pane;
+      const { text } = await call("panes.screen", { host: p.host, block_id: p.block_id, lines: 80 });
+      showTerm(s, text, quiet);
+    }
+  } catch (e) {
+    if (state.sheet !== s) return;
+    const el = $("term") || $("preview");
+    if (el) {
+      el.classList.add("loading");
+      el.textContent = e.message;
+    }
+  }
+}
+
+function showTerm(s, text, quiet) {
+  if (state.sheet !== s) return;
+  const el = $("term");
+  if (!el) return;
+  const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
+  el.classList.remove("loading");
+  el.textContent = String(text || "").replace(/\s+$/, "") || "(empty)";
+  // The prompt is at the bottom.
+  if (!quiet || atEnd) el.scrollTop = el.scrollHeight;
+}
+
+// Drag the sheet down by its handle or title to close it.
+(() => {
+  let y0 = null;
+  let dy = 0;
+  let t0 = 0;
+  sheet.addEventListener("touchstart", (e) => {
+    if (!e.target.closest(".grab, .sheet-head") || e.target.closest("button")) return;
+    y0 = e.touches[0].clientY;
+    dy = 0;
+    t0 = Date.now();
+    sheet.classList.add("dragging");
+  }, { passive: true });
+  sheet.addEventListener("touchmove", (e) => {
+    if (y0 === null) return;
+    dy = Math.max(0, e.touches[0].clientY - y0);
+    sheet.style.setProperty("--drag", `${dy}px`);
+  }, { passive: true });
+  sheet.addEventListener("touchend", () => {
+    if (y0 === null) return;
+    y0 = null;
+    sheet.classList.remove("dragging");
+    const fast = dy / Math.max(1, Date.now() - t0) > 0.6;
+    if (dy > 110 || (fast && dy > 30)) closeSheet();
+    else sheet.style.setProperty("--drag", "0px");
+  });
+})();
+
+// The keyboard covers the bottom of the screen; keep the sheet above it.
+if (window.visualViewport) {
+  const vv = window.visualViewport;
+  const fit = () => {
+    const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    document.documentElement.style.setProperty("--kb", `${Math.round(kb)}px`);
+    document.body.classList.toggle("kb", kb > 80);
+  };
+  vv.addEventListener("resize", fit);
+  vv.addEventListener("scroll", fit);
+}
+
+// ---- swipe a card left: Done (and Snooze, for what needs you) ----
+
+let swipeClose = () => {};
+
+(() => {
+  let s = null; // {wrap, card, x0, y0, dx, axis, width, open}
+  let opened = null; // a swipe left open
+  const settle = (wrap, card) => {
+    card.style.transform = "";
+    setTimeout(() => {
+      if (!card.style.transform) wrap.classList.remove("swiping");
+    }, 320);
+  };
+  const closeOpen = () => {
+    if (!opened) return;
+    settle(opened.wrap, opened.card);
+    opened = null;
+    release();
+  };
+  main.addEventListener("touchstart", (e) => {
+    const wrap = e.target.closest("[data-swipe]");
+    if (opened && (!wrap || wrap !== opened.wrap)) closeOpen();
+    if (!wrap || e.target.closest("button, textarea, .swipe-acts")) return;
+    const card = wrap.querySelector(".card");
+    const t = e.touches[0];
+    const base = opened && opened.wrap === wrap ? -opened.width : 0;
+    s = { wrap, card, x0: t.clientX - base, y0: t.clientY, dx: base, axis: null, width: wrap.querySelector(".swipe-acts").children.length * 84 };
+  }, { passive: true });
+  main.addEventListener("touchmove", (e) => {
+    if (!s) return;
+    const t = e.touches[0];
+    const dx = t.clientX - s.x0;
+    const dy = t.clientY - s.y0;
+    if (!s.axis) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      s.axis = Math.abs(dx) > Math.abs(dy) * 1.2 ? "x" : "y";
+      if (s.axis === "x") {
+        state.hold++;
+        s.wrap.classList.add("swiping");
+        s.card.classList.add("dragging");
+        if (opened && opened.wrap === s.wrap) {
+          opened = null;
+          release();
+        }
+      }
+    }
+    if (s.axis !== "x") return;
+    e.preventDefault();
+    // Rubber band past the full width; none to the right.
+    let x = Math.min(0, dx);
+    const full = s.wrap.clientWidth;
+    if (-x > full * 0.55) x = -(full * 0.55 + (-x - full * 0.55) * 0.4);
+    s.dx = x;
+    s.card.style.transform = `translateX(${x}px)`;
+    s.wrap.classList.toggle("armed", -x > full * 0.5);
+  }, { passive: false });
+  const end = () => {
+    if (!s) return;
+    const cur = s;
+    s = null;
+    if (cur.axis !== "x") return;
+    cur.card.classList.remove("dragging");
+    const full = cur.wrap.clientWidth;
+    if (-cur.dx > full * 0.5) {
+      // A full swipe: done.
+      cur.card.style.transform = `translateX(-${full}px)`;
+      release();
+      haptic();
+      return file(Number(cur.wrap.dataset.swipe), "done");
+    }
+    if (-cur.dx > 60) {
+      cur.card.style.transform = `translateX(-${cur.width}px)`;
+      opened = { wrap: cur.wrap, card: cur.card, width: cur.width };
+      return; // the hold stays until it closes
+    }
+    settle(cur.wrap, cur.card);
+    release();
+  };
+  main.addEventListener("touchend", end);
+  main.addEventListener("touchcancel", end);
+  window.addEventListener("scroll", closeOpen, { passive: true });
+  swipeClose = closeOpen;
+})();
+
+// ---- actions ----
+
+function haptic() {
+  // iOS 18 gives a tap of haptics for a switch toggled through its label.
+  try {
+    let l = $("haptic");
+    if (!l) {
+      document.body.insertAdjacentHTML("beforeend", '<label id="haptic" style="position:fixed;opacity:0;pointer-events:none;width:1px;height:1px;overflow:hidden"><input type="checkbox" switch></label>');
+      l = $("haptic");
+    }
+    l.click();
+    navigator.vibrate?.(8);
+  } catch {}
+}
+
+function toast(text, bad = false) {
+  const t = $("toast");
+  t.innerHTML = `${ic(bad ? "failed" : "done")}<span>${esc(text)}</span>`;
+  t.classList.toggle("bad", bad);
+  t.classList.add("show");
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => t.classList.remove("show"), bad ? 6000 : 3000);
+}
+
+// Collapse a card away, then let the refresh drop it.
+async function leave(id) {
+  const w = $(`w-${id}`);
+  if (!w) return;
+  state.hold++;
+  w.style.height = `${w.offsetHeight}px`;
+  w.getBoundingClientRect();
+  w.classList.add("leaving");
+  w.style.height = "0px";
+  await sleep(280);
+  release();
+}
+
+async function act(id, action, work) {
+  state.busy.set(id, action);
+  render();
+  let ok = false;
+  try {
+    await work();
+    ok = true;
+    haptic();
+  } catch (e) {
+    toast(e.message, true);
+  }
+  state.busy.delete(id);
+  if (ok) await leave(id);
+  await refresh();
+  return ok;
+}
+
+function answer(id, action) {
+  const a = findAlert(id);
+  const label = (answers(a || {}).find((x) => x.action === action) || {}).label || action;
+  return act(id, action, async () => {
+    const r = await call(action, { id, seen: a && a.msg });
+    toast(r.summary || `${label} · the pane is now ${r.now}`);
+  });
+}
+
+function file(id, how, f) {
+  swipeClose();
+  if (state.sheet && state.sheet.type === "menu") closeSheet();
+  return act(id, how, async () => {
+    if (how === "snooze") {
+      await call("alerts.snooze", { id, for: f });
+      toast(`Snoozed until ${f === "1d" ? "tomorrow" : f === "4h" ? "4 hours from now" : "an hour from now"}`);
+    } else {
+      await call("done", { id });
+    }
+  });
+}
+
+async function sendDraft(key, draftKey, work) {
+  const text = (state.drafts[draftKey] || "").trim();
+  if (!text) return;
+  state.busy.set(key, "send");
+  refreshComposer(draftKey);
+  try {
+    await work(text);
+    delete state.drafts[draftKey];
+    haptic();
+    toast("Sent. It goes in when the agent is idle.");
+    closeSheet();
+  } catch (e) {
+    toast(e.message, true);
+  }
+  state.busy.delete(key);
+  refreshComposer(draftKey);
+  refresh();
+}
+
+function refreshComposer(draftKey) {
+  const t = sheet.querySelector(`textarea[data-draft="${CSS.escape(draftKey)}"]`);
+  if (!t) return;
+  const b = t.parentElement.querySelector("button");
+  const key = b.dataset.id;
+  const busy = state.busy.has(isNaN(key) ? key : Number(key));
+  b.disabled = busy || !(state.drafts[draftKey] || "").trim();
+  b.innerHTML = busy ? '<span class="spin"></span>' : ic("send");
+}
+
+function autosize(t) {
+  t.style.height = "auto";
+  t.style.height = `${Math.min(t.scrollHeight, window.innerHeight * 0.4)}px`;
+}
+
+document.addEventListener("input", (e) => {
+  const t = e.target;
+  if (!t.dataset || !t.dataset.draft) return;
+  state.drafts[t.dataset.draft] = t.value;
+  autosize(t);
+  refreshComposer(t.dataset.draft);
 });
 
-main.addEventListener("click", async (e) => {
+document.addEventListener("click", async (e) => {
+  if (e.target.closest("[data-close]") || e.target.id === "scrim") return closeSheet();
+  const chip = e.target.closest("[data-filter]");
+  if (chip) {
+    state.filter = chip.dataset.filter;
+    render();
+    return chip.scrollIntoView({ inline: "nearest", block: "nearest", behavior: "smooth" });
+  }
+  const tab = e.target.closest("#tabbar [data-tab]");
+  if (tab) {
+    if (state.tab === tab.dataset.tab) return window.scrollTo({ top: 0, behavior: "smooth" });
+    state.tab = tab.dataset.tab;
+    render();
+    return window.scrollTo(0, 0);
+  }
   const b = e.target.closest("[data-act]");
-  if (!b) return;
+  if (!b) {
+    // A tap on a card opens it.
+    const card = e.target.closest("[data-open]");
+    if (card && !window.getSelection()?.toString()) openItem(Number(card.dataset.open));
+    return;
+  }
   const id = Number(b.dataset.id);
-  const alert = state.alerts.find((a) => a.id === id);
   switch (b.dataset.act) {
-    case "approve":
-    case "deny":
-      return act(id, async () => {
-        const r = await call(b.dataset.act, { id, seen: alert && alert.msg });
-        toast(r.summary ? `#${id}: ${r.summary}` : `#${id} ${b.dataset.act === "approve" ? "approved" : "denied"}; the pane is now ${r.now}`);
-      });
-    case "preview":
-      try {
-        showSheet((alert && alert.title) || `#${id}`, (await call("preview", { id })).text, true);
-      } catch (err) {
-        toast(err.message, true);
-      }
-      return;
-    case "snooze":
-      return act(id, () => call("alerts.snooze", { id, for: "1h" }));
+    case "answer":
+      if (state.sheet) closeSheet();
+      return answer(id, b.dataset.action);
     case "done":
-      return act(id, () => call("done", { id }));
-    case "screen":
-      try {
-        showSheet(`#${id}`, (await call("screen", { id, lines: 60 })).text);
-      } catch (err) {
-        toast(err.message, true);
-      }
-      return;
-    case "pane-screen":
-      try {
-        showSheet(b.dataset.block, (await call("panes.screen", { host: b.dataset.host, block_id: b.dataset.block, lines: 60 })).text);
-      } catch (err) {
-        toast(err.message, true);
-      }
-      return;
+      if (state.sheet && state.sheet.type !== "menu") closeSheet();
+      return file(id, "done");
+    case "snooze":
+      if (state.sheet && state.sheet.type !== "menu") closeSheet();
+      return file(id, "snooze", b.dataset.for || "1h");
+    case "menu":
+      return openSheet({ type: "menu", id, alert: findAlert(id) });
+    case "open":
+      return openItem(id);
+    case "reply":
+      return openSheet({ type: "message", id, message: findMessage(id), focus: true });
+    case "expand":
+      state.expanded.add(id);
+      b.previousElementSibling?.classList.remove("clamp");
+      return b.remove();
     case "toggle-finished":
       state.showFinished = !state.showFinished;
       return render();
-    case "reply-open":
-      state.replying.add(id);
-      render();
-      return main.querySelector(`textarea[data-draft="m${id}"]`)?.focus();
-    case "reply-send": {
-      const text = (state.drafts[`m${id}`] || "").trim();
-      if (!text) return;
-      return act(id, async () => {
-        await call("messages.reply", { id, body: text });
-        delete state.drafts[`m${id}`];
-        state.replying.delete(id);
-        toast("Sent; it goes in when the agent is idle");
-      });
+    case "pane":
+      return openSheet({ type: "pane", key: b.dataset.key, pane: findPane(b.dataset.key) });
+    case "wrap":
+      return $("term")?.classList.toggle("wrap");
+    case "screen-refresh":
+      return state.sheet && sheetLoad(state.sheet, true);
+    case "reply-send":
+      return sendDraft(id, `m${id}`, (text) => call("messages.reply", { id, body: text }));
+    case "pane-send": {
+      const key = b.dataset.id;
+      return sendDraft(key, `p${key}`, (text) => call("messages.send", { to: key.split("|")[1], body: text }));
     }
-    case "compose":
-      state.composing.add(b.dataset.key);
-      render();
-      return main.querySelector(`textarea[data-draft="p${CSS.escape(b.dataset.key)}"]`)?.focus();
-    case "compose-send": {
-      const key = b.dataset.key;
-      const text = (state.drafts[`p${key}`] || "").trim();
-      if (!text) return;
-      try {
-        await call("messages.send", { to: key.split("|")[1], body: text });
-        delete state.drafts[`p${key}`];
-        state.composing.delete(key);
-        toast("Sent; it goes in when the agent is idle");
-        refresh();
-      } catch (err) {
-        toast(err.message, true);
-      }
-      return;
-    }
+    case "enable":
+      return enablePush();
   }
 });
 
-document.querySelector(".segmented").addEventListener("click", (e) => {
-  const b = e.target.closest("button[data-tab]");
-  if (!b) return;
-  state.tab = b.dataset.tab;
-  for (const x of document.querySelectorAll(".segmented button")) x.classList.toggle("on", x === b);
-  render();
-  window.scrollTo(0, 0);
-});
+// Open an item's sheet: from a card, or from a notification (#item-N).
+function openItem(id) {
+  const a = findAlert(id);
+  const m = findMessage(id);
+  if (a) openSheet({ type: "item", id, alert: a });
+  else if (m) openSheet({ type: "message", id, message: m });
+}
 
-document.getElementById("sheet").addEventListener("click", (e) => {
-  if (e.target.matches("[data-close]") || e.target.id === "sheet") e.currentTarget.close();
-});
-
-// #item-N: from a notification, jump to that card.
-function openItem(hash) {
+function openFromHash(hash) {
   const m = /item-(\d+)/.exec(hash || "");
   if (!m) return;
   const id = Number(m[1]);
-  state.tab = "inbox";
-  for (const x of document.querySelectorAll(".segmented button")) x.classList.toggle("on", x.dataset.tab === "inbox");
-  if (state.alerts.some((a) => a.id === id && a.category === "finished")) state.showFinished = true;
+  history.replaceState(null, "", location.pathname);
+  if (state.tab !== "inbox" || state.filter !== "all") {
+    state.tab = "inbox";
+    state.filter = "all";
+  }
+  if (findAlert(id)?.category === "finished") state.showFinished = true;
   render();
-  const el = document.getElementById(`item-${id}`);
+  const el = $(`item-${id}`);
   if (el) {
-    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    el.scrollIntoView({ block: "center" });
     el.classList.add("flash");
+    openItem(id);
+  } else {
+    toast(`#${id} no longer waits for you`);
   }
 }
-window.addEventListener("hashchange", () => openItem(location.hash));
+window.addEventListener("hashchange", () => openFromHash(location.hash));
+
+// ---- the large title gives way to a bar ----
+
+let ticking = false;
+window.addEventListener("scroll", () => {
+  if (ticking) return;
+  ticking = true;
+  requestAnimationFrame(() => {
+    ticking = false;
+    const h = $("title");
+    document.body.classList.toggle("scrolled", h.getBoundingClientRect().bottom < $("topbar").offsetHeight - 4);
+  });
+}, { passive: true });
 
 // ---- notifications ----
-
-function notice(html) {
-  const n = document.getElementById("notice");
-  n.innerHTML = html;
-  n.hidden = !html;
-}
 
 const standalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 
@@ -389,55 +1079,60 @@ function b64url(s) {
   return Uint8Array.from(raw, (c) => c.charCodeAt(0));
 }
 
+const note = (icon, tone, title, text, button = "") =>
+  `<div class="note"><div class="badge-icon ${tone}">${ic(icon)}</div><p><b>${esc(title)}</b><span>${esc(text)}</span></p>${button}</div>`;
+
+let registration = null;
 async function setupPush() {
   if (!("serviceWorker" in navigator)) return;
-  const reg = await navigator.serviceWorker.register("/sw.js");
+  registration = await navigator.serviceWorker.register("/sw.js");
   navigator.serviceWorker.addEventListener("message", (e) => {
-    if (e.data && e.data.open) {
-      history.replaceState(null, "", e.data.open);
-      openItem(e.data.open);
-    }
+    if (e.data && e.data.open) openFromHash(e.data.open);
   });
   if (!("PushManager" in window)) {
-    if (!standalone()) notice(`<p>To get notifications, add this to your Home Screen: Share › Add to Home Screen, then open it from there.</p>`);
+    if (!standalone()) notice(note("bell", "t-blue", "Get notifications", "Share › Add to Home Screen, then open Rex Inbox from there."));
     return;
   }
-  const sub = await reg.pushManager.getSubscription();
+  const sub = await registration.pushManager.getSubscription();
   if (sub && Notification.permission === "granted") {
     // Tell the hub again, in case it lost track.
     call("push.subscribe", { subscription: sub.toJSON(), agent: navigator.userAgent }).catch(() => {});
     return notice("");
   }
   if (Notification.permission === "denied") {
-    return notice(`<p>Notifications are off for Rex Inbox. Turn them on in Settings › Notifications.</p>`);
+    return notice(note("bell", "t-gray", "Notifications are off", "Turn them on in Settings › Notifications › Inbox."));
   }
-  notice(`<p>Get a notification when an agent needs you.</p><button class="btn primary" id="enable">Turn On</button>`);
-  document.getElementById("enable").onclick = async () => {
-    try {
-      // Must run from the tap itself.
-      const perm = await Notification.requestPermission();
-      if (perm !== "granted") return setupPush();
-      const { public_key } = await call("push.key");
-      const s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64url(public_key) });
-      await call("push.subscribe", { subscription: s.toJSON(), agent: navigator.userAgent });
-      notice("");
-      const r = await call("push.test");
-      toast(r.sent ? "Notifications are on" : "Subscribed, but the test didn't send");
-    } catch (e) {
-      toast(e.message, true);
-    }
-  };
+  notice(note("bell", "t-blue", "Notifications", "Know when an agent needs you.", '<button class="btn primary small" data-act="enable">Turn On</button>'));
+}
+
+async function enablePush() {
+  try {
+    // Must run from the tap itself.
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") return setupPush();
+    const { public_key } = await call("push.key");
+    const s = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64url(public_key) });
+    await call("push.subscribe", { subscription: s.toJSON(), agent: navigator.userAgent });
+    notice("");
+    const r = await call("push.test");
+    toast(r.sent ? "Notifications are on" : "Subscribed, but the test didn't send", !r.sent);
+  } catch (e) {
+    toast(e.message, true);
+  }
 }
 
 // ---- start ----
 
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") soon();
+  if (document.visibilityState !== "visible") return;
+  live(); // iOS drops the stream in the background
+  soon(0);
 });
 setInterval(() => {
-  if (document.visibilityState === "visible" && document.activeElement?.tagName !== "TEXTAREA") render();
+  if (document.visibilityState === "visible" && !state.hold && !main.contains(document.activeElement)) render();
 }, 30000);
 
-refresh().then(() => openItem(location.hash));
+render();
+refresh().then(() => openFromHash(location.hash));
 live();
 setupPush().catch((e) => console.warn(e));

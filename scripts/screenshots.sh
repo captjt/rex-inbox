@@ -13,7 +13,14 @@
 # Needs jq, sqlite3, Node 22 or later, and Google Chrome. Run it again after
 # changing a layout; upload docs/images/social-preview.png in the repo's
 # Settings, under Social preview.
+#
+#   scripts/screenshots.sh           # render the screenshots
+#   scripts/screenshots.sh --serve   # keep the made-up world's hub running,
+#                                    # serving web/ from disk, to work on the
+#                                    # phone app (Ctrl-C stops it)
 set -euo pipefail
+serve=""
+[ "${1:-}" = --serve ] && serve=1
 
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/.." && pwd)
@@ -30,8 +37,10 @@ trap cleanup EXIT
 
 cargo build --release --quiet --manifest-path "$root/Cargo.toml"
 inbox="$root/target/release/rex-inbox"
-swift build -c release --package-path "$root/mac" >/dev/null
-app="$(swift build -c release --package-path "$root/mac" --show-bin-path)/RexInbox"
+if [ -z "$serve" ]; then
+  swift build -c release --package-path "$root/mac" >/dev/null
+  app="$(swift build -c release --package-path "$root/mac" --show-bin-path)/RexInbox"
+fi
 mkdir -p "$images"
 
 # --- The world -------------------------------------------------------------
@@ -108,6 +117,7 @@ jq -n '{repo: "acme/storefront", pr: 214, round: 1, state: "reviewing", phase: "
 # --- The hub, following the world --------------------------------------------
 
 export REX_INBOX_STATE="$demo/state" REX_INBOX_SOCKET="$sock"
+[ -n "$serve" ] && export REX_INBOX_WEB_DIR="$root/web"
 REX_INBOX_REX="$here/fake-rex" REX_INBOX_WORLD="$demo/world.json" REX_REVIEWER_STATE_DIR="$demo/reviewer" \
   REX_INBOX_HTTP="127.0.0.1:$port" REX_INBOX_WEB_DEV=1 REX_INBOX_NOTIFY=off \
   "$inbox" hub >"$demo/hub.log" 2>&1 &
@@ -135,6 +145,12 @@ backdate alerts "$(alert orders)" 12
 backdate alerts "$(alert tests)" 9
 backdate alerts "$(alert docs)" 20
 backdate messages "$(message "Pick a cache")" 4
+
+if [ -n "$serve" ]; then
+  echo "The made-up world's web app: http://127.0.0.1:$port/ (web/ from disk; Ctrl-C stops it)"
+  while kill -0 "$hub" 2>/dev/null; do sleep 1; done
+  exit
+fi
 
 # --- The screenshots -------------------------------------------------------
 

@@ -4,32 +4,29 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Inbox">
-  <meta name="theme-color" content="#1c1c1e">
+  <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
   <title>Rex Inbox</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/icon-180.png">
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-  <header>
-    <div class="titles">
-      <h1>Rex Inbox</h1>
-      <p id="summary">Connecting…</p>
-    </div>
-    <div class="segmented" role="tablist">
-      <button role="tab" data-tab="inbox" class="on">Inbox</button>
-      <button role="tab" data-tab="agents">Agents</button>
-    </div>
+  <div id="topbar"><span class="t" id="topbar-title">Inbox</span></div>
+  <header id="hero">
+    <h1 id="title">Inbox</h1>
+    <p id="summary"><span class="dot wait"></span><span id="summary-text">Connecting…</span></p>
   </header>
-  <div id="notice" hidden></div>
+  <div id="notice"></div>
+  <nav id="filters" hidden></nav>
   <main id="main"></main>
-  <div id="toast" hidden></div>
-  <dialog id="sheet">
-    <div class="sheet-head"><strong id="sheet-title"></strong><button class="plain" data-close>Done</button></div>
-    <pre id="sheet-body"></pre>
-  </dialog>
+  <nav id="tabbar" class="glass" role="tablist"></nav>
+  <div id="toast" class="glass" role="status" aria-live="polite"></div>
+  <div id="scrim"></div>
+  <section id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title"></section>
   <script src="/app.js"></script>
 </body>
 </html>

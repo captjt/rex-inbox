@@ -21,12 +21,21 @@ const ASSETS: &[Asset] = &[
 
 pub async fn asset(uri: Uri) -> Response {
     let path = if uri.path() == "/index.html" { "/" } else { uri.path() };
-    match ASSETS.iter().find(|a| a.path == path) {
-        Some(a) => (
-            [(header::CONTENT_TYPE, a.mime), (header::CACHE_CONTROL, "no-cache")],
-            a.body,
-        )
-            .into_response(),
-        None => (StatusCode::NOT_FOUND, "not found").into_response(),
-    }
+    let Some(a) = ASSETS.iter().find(|a| a.path == path) else {
+        return (StatusCode::NOT_FOUND, "not found").into_response();
+    };
+    // REX_INBOX_WEB_DIR (scripts/screenshots.sh --serve) serves web/ from
+    // disk, so a change shows on reload without a rebuild. Only the files
+    // above, by their fixed names.
+    let body = match std::env::var_os("REX_INBOX_WEB_DIR") {
+        Some(dir) => {
+            let file = if a.path == "/" { "index.html" } else { &a.path[1..] };
+            match tokio::fs::read(std::path::Path::new(&dir).join(file)).await {
+                Ok(bytes) => bytes.into(),
+                Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("{file}: {e}")).into_response(),
+            }
+        }
+        None => axum::body::Body::from(a.body),
+    };
+    ([(header::CONTENT_TYPE, a.mime), (header::CACHE_CONTROL, "no-cache")], body).into_response()
 }
