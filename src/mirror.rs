@@ -94,10 +94,17 @@ impl Pane {
     }
 
     /// The agent or program that reports status here, such as `claude-code`.
+    /// Before an agent reports anything (while it shows a first-run prompt,
+    /// say), the program running in the pane says which agent it is.
     pub fn app(&self) -> Option<&str> {
         self.root()
             .and_then(|r| r.effective_app.as_deref().or(r.app.as_deref()))
             .or_else(|| self.records.values().find_map(|r| r.effective_app.as_deref().or(r.app.as_deref())))
+            .or(match self.process.as_deref() {
+                Some("claude") => Some("claude-code"),
+                Some("codex") => Some("codex"),
+                _ => None,
+            })
     }
 
     /// The most urgent state of any record, or `None` with no records.
@@ -148,6 +155,10 @@ pub struct Changes {
 pub struct HostMirror {
     pub host: String,
     pub connected: bool,
+    /// Why the last attempt to follow this host failed, until one works.
+    pub error: Option<String>,
+    /// The home folder of the user Rex runs as there, once a pane says.
+    pub home: Option<String>,
     pub sessions: BTreeMap<String, Session>,
     pub panes: BTreeMap<String, Pane>,
 }
@@ -223,6 +234,9 @@ impl HostMirror {
         pwd: Option<&Value>,
     ) {
         let host = self.host.clone();
+        if let Some(h) = process.and_then(|v| v["home"].as_str()).filter(|h| !h.is_empty()) {
+            self.home = Some(h.to_string());
+        }
         let p = self.panes.entry(block_id.to_string()).or_insert_with(|| Pane::new(&host, session_id, block_id));
         p.records = records.into_iter().map(|r| (r.id.clone(), r)).collect();
         if let Some(fg) = process.and_then(|v| v.get("foreground")) {
@@ -375,5 +389,27 @@ mod tests {
         assert_eq!(path_of("file://mac.local/Users/j/My%20Code"), "/Users/j/My Code");
         assert_eq!(path_of("/already/a/path"), "/already/a/path");
         assert_eq!(path_of("file://host/trailing%2"), "/trailing%2");
+    }
+}
+
+#[cfg(test)]
+mod agent_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn an_agent_is_one_before_it_reports() {
+        let mut m = HostMirror::new("local");
+        let fg = |name: &str| json!({ "foreground": { "name": name, "cwd": "/w" }, "home": "/Users/j" });
+        m.apply_pane_status("s", "a", vec![], Some(&fg("codex")), None);
+        m.apply_pane_status("s", "b", vec![], Some(&fg("zsh")), None);
+        assert_eq!(m.panes["a"].app(), Some("codex"));
+        assert!(m.panes["a"].is_agent());
+        assert!(!m.panes["b"].is_agent());
+        assert_eq!(m.home.as_deref(), Some("/Users/j"));
+        // What it reports wins.
+        let r = Record { state: "idle".into(), app: Some("claude-code".into()), ..Default::default() };
+        m.apply_pane_status("s", "a", vec![r], Some(&fg("codex")), None);
+        assert_eq!(m.panes["a"].app(), Some("claude-code"));
     }
 }

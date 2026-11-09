@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// `RexInbox --snapshot out.png [--tab agents] [--window] [--appearance light]`
+/// `RexInbox --snapshot out.png [--tab agents] [--window | --new-agent] [--appearance light]`
 /// renders the panel (or the window, with --window), with the hub's live
 /// data, to a PNG at 2x and quits. It checks the layout without opening
 /// anything on screen.
@@ -18,12 +18,16 @@ enum Snapshot {
             try? await Task.sleep(for: .seconds(1.5))
             await store.refresh()
             let asWindow = args.contains("--window")
-            let root: AnyView = asWindow
+            let newAgent = args.contains("--new-agent")
+            if newAgent { await store.loadHosts() }
+            let root: AnyView = newAgent
+                ? AnyView(NewAgentWindow(store: store).frame(width: 600, height: 560))
+                : asWindow
                 ? AnyView(MainWindow(store: store, selection: tab == .agents ? .agents : .inbox(.all)).frame(width: 980, height: 700))
                 : AnyView(PanelView(store: store, tab: tab))
             let host = NSHostingView(rootView: root.background(Color(nsColor: .windowBackgroundColor)))
             let window = NSWindow(
-                contentRect: NSRect(x: -10_000, y: -10_000, width: asWindow ? 980 : PanelView.width, height: asWindow ? 700 : 600),
+                contentRect: NSRect(x: -10_000, y: -10_000, width: newAgent ? 600 : asWindow ? 980 : PanelView.width, height: newAgent ? 560 : asWindow ? 700 : 600),
                 styleMask: [.borderless], backing: .buffered, defer: false
             )
             if let j = args.firstIndex(of: "--appearance"), j + 1 < args.count {
@@ -34,7 +38,7 @@ enum Snapshot {
             window.orderFrontRegardless()
             for _ in 0..<3 {
                 try? await Task.sleep(for: .seconds(0.5))
-                if !asWindow { window.setContentSize(host.fittingSize) }
+                if !asWindow && !newAgent { window.setContentSize(host.fittingSize) }
             }
             // Off screen the backing scale is 1; draw at 2x to stay sharp.
             let size = host.bounds.size

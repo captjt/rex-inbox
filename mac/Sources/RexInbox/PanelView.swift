@@ -71,6 +71,16 @@ struct PanelView: View {
             .labelsHidden()
             .fixedSize()
             Button {
+                openWindow(id: "new-agent")
+                NSApp.activate()
+            } label: {
+                Image(systemName: "plus")
+            }
+            .buttonStyle(.borderless)
+            .font(.title3)
+            .help("Start an agent, here or on another Rex host")
+            .disabled(!store.connected)
+            Button {
                 openWindow(id: "main")
                 NSApp.activate()
             } label: {

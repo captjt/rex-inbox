@@ -192,7 +192,12 @@ Each step is usable on its own.
 5. Done: the Mac menu bar app.
 6. Done: the phone web app, HTTP API, and Web Push (waiting on Tailscale on the Mac to try on a phone).
 7. Codex's prompt keys, checked against a live prompt.
-8. Other hosts: a watcher per `rex hosts` entry, and the `inbox_rpc` action.
+8. Other hosts: done, a watcher per `rex hosts` entry, read again every 30
+   seconds (`src/fleet.rs`). `REX_INBOX_HOSTS` adds hosts Rex doesn't list.
+   Still to do: the `inbox_rpc` action, so agents there can use the CLI.
+10. Done: start agents from the inbox (`agents.start`, `src/start.rs`) on any
+    followed host: Claude Code or Codex in a new tab of the host's `inbox`
+    session, in a folder checked through that host's `list_dir`.
 9. Done: rex-reviewer's reviews as items, with its agents folded in (see "With rex-reviewer").
 
 Tested on 2026-11-05: two Haiku agents traded messages through the hub, a
@@ -203,8 +208,13 @@ approved from the app.
 
 - The phone can't open a pane in the Rex iOS app (no documented deep link),
   so "Show pane" shows its screen instead.
-- Claude Code's folder-trust prompt at startup reports no status, so it
-  never reaches the inbox.
+- Claude Code's and Codex's folder-trust prompts at startup report no
+  status, so they never reach the inbox. A pane running `claude` or `codex`
+  is listed under Agents as `starting` until its agent reports, so an agent
+  started from the inbox and stuck there can be found, but the prompt must
+  be answered in Rex.
+- Agents on other hosts can't use the `rex-inbox` CLI yet: it finds that
+  machine's hub, or none. Messages to them say to answer in the pane.
 - Codex's approval keys aren't verified yet, so Codex prompts get Open only.
 - A message can land while you are typing into an idle agent's prompt. The
   two-second settle makes this unlikely, but not impossible.

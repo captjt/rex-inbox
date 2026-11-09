@@ -28,15 +28,30 @@ pub fn rex_bin() -> PathBuf {
 }
 
 /// One Rex server. `host` is a label from `rex hosts`, or `None` for the
-/// local server.
-#[derive(Clone, Debug)]
+/// local server. `server` is what `-S` gets: the label itself, or an
+/// address given in `REX_INBOX_HOSTS`.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Rex {
     pub host: Option<String>,
+    server: Option<String>,
+}
+
+/// A new agent's pane, as Rex made it.
+#[derive(Debug)]
+pub struct Created {
+    pub session_id: String,
+    pub window_id: Option<String>,
+    pub block_id: String,
 }
 
 impl Rex {
     pub fn local() -> Self {
-        Rex { host: None }
+        Rex { host: None, server: None }
+    }
+
+    /// Another host, reached by `server` (its label, or an address).
+    pub fn remote(label: &str, server: &str) -> Self {
+        Rex { host: Some(label.to_string()), server: Some(server.to_string()) }
     }
 
     /// The name this server goes by in rex-inbox records.
@@ -49,8 +64,8 @@ impl Rex {
         // Never let a pane's own location leak into the hub's calls.
         c.env_remove("REX_SESSION").env_remove("REX_BLOCK").env_remove("REX_CLIENT");
         c.arg("--autostart=false");
-        if let Some(h) = &self.host {
-            c.arg("-S").arg(h);
+        if let Some(s) = &self.server {
+            c.arg("-S").arg(s);
         }
         c.stdin(Stdio::null()).kill_on_drop(true);
         c
@@ -144,6 +159,78 @@ impl Rex {
         // No app connected is fine: the pane is still focused in Rex.
         let _ = self.run(&args, None).await;
         Ok(())
+    }
+
+    /// `rex hosts list --json`, from this machine: the labels of the other
+    /// Rex servers you connect to.
+    pub async fn host_labels(&self) -> Result<Vec<String>> {
+        let v = self.run_json(&["hosts", "list", "--json"], None).await?;
+        Ok(v["hosts"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|h| h["host"]["label"].as_str()).map(str::to_string).collect())
+            .unwrap_or_default())
+    }
+
+    /// A folder on this host, through a terminal there: `(status, path,
+    /// subfolders)`. Rex expands `~`; status is `ok`, `missing`, or
+    /// `not_dir`.
+    pub async fn list_dir(&self, session: &str, block: &str, path: &str) -> Result<(String, String, Vec<String>)> {
+        let v = self.block_call(session, block, "list_dir", &json!({ "path": path })).await?;
+        let names = v["entries"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|e| e["name"].as_str()).map(str::to_string).collect())
+            .unwrap_or_default();
+        Ok((
+            v["status"].as_str().unwrap_or_default().to_string(),
+            v["path"].as_str().unwrap_or(path).to_string(),
+            names,
+        ))
+    }
+
+    /// Start `argv` in a new tab of a session, labeled `label`, in `cwd`,
+    /// without taking focus. With `session` `Err(name)`, make that session
+    /// first: its first tab holds the program. The tab and the pane both
+    /// take the label.
+    pub async fn start(&self, session: std::result::Result<&str, &str>, label: &str, cwd: &str, argv: &[&str]) -> Result<Created> {
+        let created = match session {
+            Ok(sid) => {
+                let mut args = vec!["run", "-s", sid, "--label", label, "-c", cwd, "--focus=false", "--json", "--"];
+                args.extend_from_slice(argv);
+                let v = self.run_json(&args, None).await?;
+                Created {
+                    session_id: sid.to_string(),
+                    window_id: v["window_id"].as_str().map(str::to_string),
+                    block_id: v["block_ids"][0].as_str().context("rex run: no block")?.to_string(),
+                }
+            }
+            Err(name) => {
+                let mut args = vec!["new", name, "-c", cwd, "--window", label, "--json", "--"];
+                args.extend_from_slice(argv);
+                let v = self.run_json(&args, None).await?;
+                let w = &v["initial_windows"][0];
+                let c = Created {
+                    session_id: v["session_id"].as_str().context("rex new: no session")?.to_string(),
+                    window_id: w["window_id"].as_str().map(str::to_string),
+                    block_id: w["block_ids"][0].as_str().context("rex new: no block")?.to_string(),
+                };
+                self.run(&["block", "rename", "-s", &c.session_id, &c.block_id, label], None).await?;
+                c
+            }
+        };
+        if let Some(w) = &created.window_id {
+            // A tab named for its agent; cosmetic, so a failure is fine.
+            let _ = self.run(&["window", "rename", "-s", &created.session_id, w, label], None).await;
+        }
+        Ok(created)
+    }
+
+    /// The blocks of a session, as Rex has them now.
+    pub async fn block_ids(&self, session: &str) -> Result<Vec<String>> {
+        let v = self.api(Some(session), "session.list_blocks", &json!({})).await?;
+        Ok(v["blocks"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|b| b["block_id"].as_str()).map(str::to_string).collect())
+            .unwrap_or_default())
     }
 
     /// Start `rex events --all --json`. Read lines from its stdout.

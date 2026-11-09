@@ -112,7 +112,42 @@ struct Pane: Decodable, Identifiable, Hashable {
     var id: String { host + "|" + blockId }
     var session: String { (sessionLabel?.isEmpty == false ? sessionLabel : nil) ?? Format.shortID(sessionId) }
     var name: String { label.isEmpty ? Format.shortID(blockId) : label }
-    var address: String { "\(session)/\(name)" }
+    var isLocal: Bool { host == "local" }
+    var address: String { isLocal ? "\(session)/\(name)" : "\(host):\(session)/\(name)" }
+    /// What the Agents list groups by: the session, and its host when it's another machine.
+    var group: String { isLocal ? session : "\(host) · \(session)" }
+}
+
+/// A Rex host the hub follows, as `hosts.list` has it: where a new agent can go.
+struct RexHost: Decodable, Identifiable, Hashable {
+    let host: String
+    let connected: Bool
+    let error: String?
+    let home: String?
+    let sessions: [String]
+    /// Folders its panes are in, agents' first.
+    let folders: [String]
+    let agents: Int
+
+    var id: String { host }
+    var isLocal: Bool { host == "local" }
+    var title: String { isLocal ? "This Mac" : host }
+}
+
+/// A folder's subfolders on a host (`dirs.list`).
+struct DirListing: Decodable {
+    let status: String
+    let path: String
+    let dirs: [String]
+}
+
+/// An agent `agents.start` started.
+struct Started: Decodable {
+    let host: String
+    let name: String
+    let address: String
+    let cwd: String
+    let blockId: String
 }
 
 struct HubEvent: Decodable {

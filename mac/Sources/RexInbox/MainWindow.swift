@@ -10,6 +10,7 @@ enum SidebarItem: Hashable {
 struct MainWindow: View {
     let store: Store
     @State private var selection: SidebarItem? = .inbox(.all)
+    @Environment(\.openWindow) private var openWindow
 
     init(store: Store, selection: SidebarItem = .inbox(.all)) {
         self.store = store
@@ -55,6 +56,17 @@ struct MainWindow: View {
             }
             .navigationTitle(title)
             .navigationSubtitle(store.summary)
+            .toolbar {
+                ToolbarItem {
+                    Button {
+                        openWindow(id: "new-agent")
+                    } label: {
+                        Label("New Agent", systemImage: "plus")
+                    }
+                    .help("Start an agent, here or on another Rex host")
+                    .disabled(!store.connected)
+                }
+            }
         }
         .frame(minWidth: 780, minHeight: 520)
         // In the Dock and the app switcher while the window is open.
