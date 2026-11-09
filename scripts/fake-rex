@@ -6,21 +6,41 @@
 #
 # The world is JSON: {"sessions": [{"session_id", "label", "windows": [{"window_id",
 # "label", "blocks": [{"block_id", "label", "cwd", "process", "records": [...]}]}]}],
-# "previews": {"<item id>": "markdown"}}. Records are program status records.
+# "previews": {"<item id>": "markdown"}, "home": "/Users/you",
+# "hosts": {"<label>": {"home", "sessions": [...]}}}. Records are program
+# status records. Each of "hosts" is another Rex server, reached with -S.
 set -euo pipefail
 world=${REX_INBOX_WORLD:?set REX_INBOX_WORLD to a world file}
 
+# -S LABEL picks another host's part of the world.
 args=()
-for a in "$@"; do
-  [[ $a == --autostart=* ]] || args+=("$a")
+srv=""
+while [ $# -gt 0 ]; do
+  case $1 in
+    --autostart=*) ;;
+    -S) srv=$2; shift ;;
+    *) args+=("$1") ;;
+  esac
+  shift
 done
 set -- "${args[@]}"
 
+# jq over this server's part of the world: $w.
+q() { # filter [jq args...]
+  local f=$1
+  shift
+  jq -c --arg srv "$srv" "$@" "(if \$srv == \"\" then . else .hosts[\$srv] end) as \$w | $f" "$world"
+}
+
 block() { # session block filter
-  jq -c --arg s "$1" --arg b "$2" ".sessions[] | select(.session_id == \$s) | .windows[].blocks[] | select(.block_id == \$b) | $3" "$world"
+  q "\$w.sessions[] | select(.session_id == \$s) | .windows[].blocks[] | select(.block_id == \$b) | $3" --arg s "$1" --arg b "$2"
 }
 
 case "${1:-}" in
+  hosts)
+    # hosts list --json
+    jq -c '{hosts: [(.hosts // {}) | keys[] | {host: {label: .}}], home: {label: "mac", this_machine: true}}' "$world"
+    ;;
   events)
     # Nothing ever happens in this world. Stay until the hub goes.
     while kill -0 "$PPID" 2>/dev/null; do sleep 1; done
@@ -36,14 +56,14 @@ case "${1:-}" in
     method=$1
     [ "${2:-}" = - ] && cat >/dev/null
     case $method in
-      session.list) jq -c '{sessions: [.sessions[] | {session_id, label}]}' "$world" ;;
+      session.list) q '{sessions: [$w.sessions[] | {session_id, label}]}' ;;
       session.view)
-        jq -c --arg s "$session" '.sessions[] | select(.session_id == $s)
-          | {label, active_window_id: .windows[0].window_id, windows: [.windows[] | {window_id, label}]}' "$world"
+        q '$w.sessions[] | select(.session_id == $s)
+          | {label, active_window_id: .windows[0].window_id, windows: [.windows[] | {window_id, label}]}' --arg s "$session"
         ;;
       session.list_blocks)
-        jq -c --arg s "$session" '{blocks: [.sessions[] | select(.session_id == $s) | .windows[] as $w
-          | $w.blocks[] | {block_id, label, creator_name: "com.superlogical.terminal", window_id: $w.window_id}]}' "$world"
+        q '{blocks: [$w.sessions[] | select(.session_id == $s) | .windows[] as $win
+          | $win.blocks[] | {block_id, label, creator_name: "com.superlogical.terminal", window_id: $win.window_id}]}' --arg s "$session"
         ;;
       *) echo '{}' ;;
     esac
@@ -52,7 +72,7 @@ case "${1:-}" in
     # block call -s SESSION -b BLOCK METHOD ARGS
     case $7 in
       program_status) block "$4" "$6" '{records: .records}' ;;
-      process) block "$4" "$6" '{foreground: {name: .process, cwd: .cwd}}' ;;
+      process) block "$4" "$6" '{foreground: {name: .process, cwd: .cwd}, home: $w.home}' ;;
       pwd) block "$4" "$6" '{pwd: ("file://localhost" + .cwd)}' ;;
       *) echo '{}' ;;
     esac
@@ -64,7 +84,7 @@ case "${1:-}" in
   do)
     # rex-reviewer's preview action, for an item the world has a preview of.
     if [ "${2:-}" = reviewer_preview ]; then
-      jq -c --arg i "${3#item=}" '{dry_run: true, preview: .previews[$i]}' "$world"
+      q '{dry_run: true, preview: $w.previews[$i]}' --arg i "${3#item=}"
     else
       echo '{}'
     fi

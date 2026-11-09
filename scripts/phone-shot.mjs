@@ -1,17 +1,18 @@
 // Screenshot the web app the way a phone shows it, for scripts/screenshots.sh.
 // It starts headless Chrome, sizes the page like an iPhone (390x844 at 2x),
 // picks a light or dark appearance, and saves a PNG. Needs Node 22 or later
-// (for its WebSocket) and Google Chrome.
+// (for its WebSocket) and Google Chrome. With SCRIPT, it runs that in the
+// page once loaded (to open a sheet, say) before the shot.
 //
-//   node scripts/phone-shot.mjs URL OUT.png light|dark
+//   node scripts/phone-shot.mjs URL OUT.png light|dark [SCRIPT]
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const [url, out, scheme = "dark"] = process.argv.slice(2);
+const [url, out, scheme = "dark", script] = process.argv.slice(2);
 if (!url || !out) {
-  console.error("usage: node scripts/phone-shot.mjs URL OUT.png light|dark");
+  console.error("usage: node scripts/phone-shot.mjs URL OUT.png light|dark [SCRIPT]");
   process.exit(2);
 }
 const chrome = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -43,6 +44,10 @@ try {
   await send("Page.enable");
   await send("Page.navigate", { url });
   await sleep(2500);
+  if (script) {
+    await send("Runtime.evaluate", { expression: script });
+    await sleep(1500);
+  }
   const shot = await send("Page.captureScreenshot", { format: "png" });
   writeFileSync(out, Buffer.from(shot.result.data, "base64"));
   ws.close();
