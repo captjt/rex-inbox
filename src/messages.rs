@@ -30,6 +30,19 @@ impl Caller {
         }
     }
 
+    /// The caller's pane, wherever it is. The CLI knows its pane but not
+    /// what the hub calls its machine, and Rex's block ids are unique across
+    /// servers, so the host is the one that has the block.
+    pub fn locate(&mut self, core: &Core) {
+        let Some(b) = self.block.as_deref() else { return };
+        if core.pane(&self.host, b).is_some() {
+            return;
+        }
+        if let Some(p) = core.hosts.values().flat_map(|m| m.panes.values()).find(|p| p.block_id == b) {
+            self.host = p.host.clone();
+        }
+    }
+
     /// The caller as a message end. An agent pane speaks for itself; any
     /// other pane (a shell you type in) speaks for you.
     pub fn end(&self, core: &Core) -> End {
@@ -79,7 +92,8 @@ fn send(core: &Core, from: &End, to: &End, subject: Option<&str>, body: &str, re
 }
 
 pub async fn dispatch(shared: &Shared, method: &str, params: &Value) -> Result<Value> {
-    let caller = Caller::from_params(params);
+    let mut caller = Caller::from_params(params);
+    caller.locate(&shared.lock());
     match method {
         "whoami" => {
             let core = shared.lock();

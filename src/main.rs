@@ -192,8 +192,12 @@ enum Cmd {
     Web,
     /// Print the hub's events as JSON lines until interrupted.
     Watch,
-    /// Read one request ({"method", "params"}) from stdin and print the answer.
-    Rpc,
+    /// Answer one request ({"method", "params"}), given or from stdin, from
+    /// this machine's hub. Rex's inbox_rpc action runs it for other hosts.
+    Rpc {
+        /// The request as JSON; without it, stdin.
+        request: Option<String>,
+    },
 }
 
 fn print_json(v: &Value) -> Result<()> {
@@ -201,10 +205,11 @@ fn print_json(v: &Value) -> Result<()> {
     Ok(())
 }
 
-/// Where the CLI runs, from the variables Rex sets in every pane.
+/// Where the CLI runs, from the variables Rex sets in every pane. The hub
+/// finds which host has the pane: this machine's, or another's when the
+/// CLI runs there.
 fn caller(as_me: bool) -> Value {
     json!({
-        "host": "local",
         "session_id": std::env::var("REX_SESSION").ok(),
         "block_id": std::env::var("REX_BLOCK").ok(),
         "as_me": as_me,
@@ -225,6 +230,14 @@ fn read_stdin() -> Result<String> {
     let mut s = String::new();
     std::io::stdin().read_to_string(&mut s)?;
     Ok(s)
+}
+
+/// Whether this machine's Rex has rex-inbox's inbox_rpc action.
+fn has_rpc_action() -> bool {
+    let out = std::process::Command::new(rex::rex_bin()).args(["--autostart=false", "actions", "--json"]).output();
+    let Ok(out) = out else { return false };
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
+    list(&v["actions"]).iter().any(|a| a["name"] == "inbox_rpc")
 }
 
 /// Approve or deny; exit 3 if the prompt is still up afterwards.
@@ -419,6 +432,10 @@ async fn run(cli: Cli) -> Result<()> {
                 }
             }
             println!("  {} open items", v["open_alerts"]);
+            if list(&v["hosts"]).len() > 1 && !has_rpc_action() {
+                println!("  agents on other hosts can't reach this hub: Rex here lacks the inbox_rpc action.");
+                println!("  Load rex/init.lua from rex-inbox in your Rex init.lua, then: rex config reload");
+            }
             Ok(())
         }
         Cmd::Web => {
@@ -478,11 +495,16 @@ async fn run(cli: Cli) -> Result<()> {
             println!("{}", serde_json::to_string(&ev)?);
             Ok(true)
         }),
-        Cmd::Rpc => {
-            let mut input = String::new();
-            std::io::stdin().read_to_string(&mut input)?;
+        Cmd::Rpc { request } => {
+            let input = match request {
+                Some(r) => r,
+                None => read_stdin()?,
+            };
             let req: api::Request = serde_json::from_str(&input)?;
-            let resp = match api::call(&req.method, req.params) {
+            if req.method == "hub.stop" || req.method == "watch" {
+                anyhow::bail!("{} isn't answered here", req.method);
+            }
+            let resp = match api::call_local(&req.method, req.params) {
                 Ok(v) => api::Response::ok(v),
                 Err(e) => api::Response::err(format!("{e:#}")),
             };

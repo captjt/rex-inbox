@@ -161,6 +161,10 @@ pub struct HostMirror {
     pub home: Option<String>,
     pub sessions: BTreeMap<String, Session>,
     pub panes: BTreeMap<String, Pane>,
+    /// Agents the inbox started that haven't reported yet, and when they
+    /// started. One that stays quiet is held at a prompt before it starts.
+    #[serde(skip)]
+    pub launched: BTreeMap<String, std::time::Instant>,
 }
 
 fn s(v: &Value) -> Option<String> {
@@ -239,6 +243,9 @@ impl HostMirror {
         }
         let p = self.panes.entry(block_id.to_string()).or_insert_with(|| Pane::new(&host, session_id, block_id));
         p.records = records.into_iter().map(|r| (r.id.clone(), r)).collect();
+        if !p.records.is_empty() {
+            self.launched.remove(block_id);
+        }
         if let Some(fg) = process.and_then(|v| v.get("foreground")) {
             set_process(p, fg);
         }
@@ -306,6 +313,7 @@ impl HostMirror {
                 }
                 if pane.records.get(&rec.id) != Some(&rec) {
                     pane.records.insert(rec.id.clone(), rec);
+                    self.launched.remove(&block);
                     changes.panes.insert(block);
                 }
             }

@@ -130,6 +130,7 @@ the app.
 | `done N`, `snooze N 1h`, `reopen N` | File an item. |
 | `start [--on HOST] [--codex] [-C DIR] [--name N] [-s SESSION] [PROMPT\|-]` | Start Claude Code (or Codex) in a new tab, here or on another Rex host. |
 | `hosts` | The machines the hub follows, and whether each is reachable. |
+| `rpc [REQUEST]` | Answer one request from this machine's hub (what `inbox_rpc` runs). |
 | `send --to NAME [--subject S] TEXT\|-` | Message an agent's pane (`reviewer`, `session/pane`, a block id) or `me`. |
 | `reply N TEXT\|-` | Answer a message; it goes to the other side. |
 | `inbox`, `read N`, `wait [--thread N] [--timeout S]` | An agent's own messages. |
@@ -160,9 +161,36 @@ Started Claude Code as studio:inbox/claude in ~/code/api
 - **The folder** must exist on that machine. Pick from the folders its
   agents are in, or browse its folders from the app or the phone.
 
-An agent on another machine takes messages and its prompts can be approved
-like any other. Its own `rex-inbox` commands don't reach this hub yet, so
-it answers messages in its pane. See [DESIGN.md](DESIGN.md#known-gaps).
+If an agent the inbox started reports nothing for 8 seconds, it's held at
+a prompt before it starts, such as Codex or Claude Code asking whether to
+trust a new folder. That becomes a **needs you** item. Answer it in Rex,
+and the item clears once the agent starts.
+
+### Agents on other machines
+
+Agents there take messages, and their prompts are approved like any other.
+For them to use `rex-inbox` themselves (send, reply, read, wait), two
+things are needed:
+
+1. **On the hub's machine**, load rex-inbox's Rex action, then run
+   `rex config reload`. Add this to your Rex `init.lua`:
+
+   ```lua
+   dofile(os.getenv("HOME") .. "/src/rex-inbox/rex/init.lua")
+   ```
+
+   It defines `inbox_rpc`, which hands one request to the hub.
+   `rex-inbox status` warns when the hub follows other hosts but the
+   action isn't loaded.
+2. **On the other machine**, install the `rex-inbox` CLI (`cargo install
+   --path .`, but don't run `up`). With no hub of its own, it reaches the
+   hub through `rex -S HOME do inbox_rpc`. HOME is that machine's Rex home,
+   or `REX_INBOX_VIA` when set. Rex carries the request and decides who may
+   make it, so no ports are opened.
+
+The hub knows which pane is calling from its block id, which is unique
+across Rex servers. Without the CLI there, an agent answers a message in
+its pane, where you can read it.
 
 ## How it works
 

@@ -176,7 +176,7 @@ function headline(a) {
   if (a.category === "failed") return `${app} failed`;
   if (a.category === "finished") return `${app} finished`;
   if (a.app === "rex-reviewer" && a.kind === "permission") return "Review ready to post";
-  return { permission: `${app} needs your approval`, question: `${app} has a question`, auth: `${app} needs you to sign in` }[a.kind] || `${app} needs you`;
+  return { permission: `${app} needs your approval`, question: `${app} has a question`, auth: `${app} needs you to sign in`, startup: `${app} is waiting to start` }[a.kind] || `${app} needs you`;
 }
 
 const what = (x) => [x.title, x.msg].filter(Boolean).join(": ");
@@ -191,7 +191,7 @@ const isCommand = (a) => a.category === "needs_you" && a.kind === "permission" &
 function alertLook(a) {
   if (a.category === "failed") return ["failed", "t-red"];
   if (a.category === "finished") return ["done", "t-green"];
-  return [{ permission: isReview(a) ? "doc" : "hand", question: "question", auth: "key" }[a.kind] || "hand", "t-orange"];
+  return [{ permission: isReview(a) ? "doc" : "hand", question: "question", auth: "key", startup: "clock" }[a.kind] || "hand", "t-orange"];
 }
 
 const STATE_TINT = { blocked: "t-orange", error: "t-red", working: "t-blue", done: "t-green" };

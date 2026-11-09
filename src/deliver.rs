@@ -105,9 +105,9 @@ fn plan(shared: &Shared, last: &HashMap<String, (Option<String>, Instant)>) -> V
     due
 }
 
-/// The text pasted into the agent's pane. An agent on another host can't
-/// reach this hub with the CLI yet (its `rex-inbox` finds that machine's
-/// hub, or none), so it gets the whole message and answers in its pane.
+/// The text pasted into the agent's pane. An agent on another host gets the
+/// whole message (`read` there means a trip through Rex), and a way to
+/// answer even if rex-inbox isn't installed there.
 pub fn render(m: &Message) -> String {
     let remote = m.to_host.as_deref().is_some_and(|h| h != "local");
     let from = if m.from_block.is_none() { "the user (through rex-inbox)".to_string() } else { m.from_addr.clone() };
@@ -129,16 +129,12 @@ pub fn render(m: &Message) -> String {
     }
     out.push_str("\n\n");
     out.push_str(m.body.trim_end());
+    out.push_str(&format!(
+        "\n\nReply with `rex-inbox reply {} \"...\"` (or `rex-inbox reply {} -` with the text on stdin).",
+        m.id, m.id
+    ));
     if remote {
-        out.push_str(
-            "\n\nThis pane is on another machine, where rex-inbox commands don't reach the sender. \
-             Answer here, in your reply to this turn: they read it in this pane.",
-        );
-    } else {
-        out.push_str(&format!(
-            "\n\nReply with `rex-inbox reply {} \"...\"` (or `rex-inbox reply {} -` with the text on stdin).",
-            m.id, m.id
-        ));
+        out.push_str(" If rex-inbox isn't installed on this machine, answer here instead: the sender reads this pane.");
     }
     out
 }
@@ -221,8 +217,8 @@ mod tests {
         let here = render(&msg("local", "hi"));
         assert!(here.contains("rex-inbox reply 9"));
         let there = render(&msg("studio", "hi"));
-        assert!(!there.contains("rex-inbox reply"));
-        assert!(there.contains("Answer here"));
+        assert!(there.contains("rex-inbox reply 9"));
+        assert!(there.contains("answer here instead"));
         // Long: a pointer here, the whole text there.
         let long = "x\n".repeat(MAX_PASTE);
         assert!(render(&msg("local", &long)).contains("rex-inbox read 9"));
