@@ -11,6 +11,7 @@ mod api;
 mod approve;
 mod deliver;
 mod fleet;
+mod hooks;
 mod hub;
 mod messages;
 mod methods;
@@ -192,6 +193,15 @@ enum Cmd {
     Web,
     /// Print the hub's events as JSON lines until interrupted.
     Watch,
+    /// Show the agents' Stop hooks, which put what an agent said when it
+    /// finished on its Finished item; install or remove them.
+    Hooks {
+        /// install, or remove; nothing to show them.
+        action: Option<String>,
+    },
+    /// Run as an agent's hook: `stop` reads the hook's input on stdin.
+    #[command(hide = true)]
+    Hook { event: String },
     /// Answer one request ({"method", "params"}), given or from stdin, from
     /// this machine's hub. Rex's inbox_rpc action runs it for other hosts.
     Rpc {
@@ -432,6 +442,9 @@ async fn run(cli: Cli) -> Result<()> {
                 }
             }
             println!("  {} open items", v["open_alerts"]);
+            if hooks::any_missing() {
+                println!("  agents here don't say what they did when they finish: run rex-inbox hooks install");
+            }
             if list(&v["hosts"]).len() > 1 && !has_rpc_action() {
                 println!("  agents on other hosts can't reach this hub: Rex here lacks the inbox_rpc action.");
                 println!("  Load rex/init.lua from rex-inbox in your Rex init.lua, then: rex config reload");
@@ -495,6 +508,13 @@ async fn run(cli: Cli) -> Result<()> {
             println!("{}", serde_json::to_string(&ev)?);
             Ok(true)
         }),
+        Cmd::Hooks { action } => hooks::cli(action.as_deref()),
+        Cmd::Hook { event } => match event.as_str() {
+            "stop" => hooks::stop(),
+            "send" => hooks::send(caller(false)),
+            // Hooks must not fail an agent, whatever an older config asks.
+            _ => Ok(()),
+        },
         Cmd::Rpc { request } => {
             let input = match request {
                 Some(r) => r,

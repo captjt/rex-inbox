@@ -46,7 +46,7 @@ fn pane_view(core: &crate::hub::Core, p: &Pane, subject: Option<String>) -> Pane
         // An agent that hasn't reported yet is starting up.
         state: head.map(|r| r.state.clone()).or_else(|| p.is_agent().then(|| "starting".to_string())),
         kind: head.and_then(|r| r.kind.clone()),
-        msg: head.and_then(|r| r.msg.clone()),
+        msg: head.and_then(|r| r.msg.clone()).or_else(|| p.summary.clone()),
         title: head.and_then(|r| r.title.clone()),
         since: head.and_then(|r| r.updated_at.clone()),
         cwd: p.cwd.clone(),
@@ -261,6 +261,8 @@ pub async fn dispatch(shared: &Shared, method: &str, params: Value) -> Result<Va
         "dirs.list" => crate::start::dirs(shared, &params).await,
 
         "agents.start" => crate::start::start(shared, &params).await,
+
+        "turn.done" => crate::hooks::turn_done(shared, &params),
 
         m if m.starts_with("messages.") || m == "whoami" || m == "name" => crate::messages::dispatch(shared, m, &params).await,
 

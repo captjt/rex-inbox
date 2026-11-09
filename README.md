@@ -19,7 +19,7 @@ $ rex-inbox ls
 Needs you
   #17  permission  Claude Code  solar-isle/alpha  ~/git/app  12s  approve Bash: rm approved.txt
 Finished
-  #12              Claude Code  restless-cliff/shell  ~/git/web  4m
+  #12              Claude Code  restless-cliff/shell  ~/git/web  4m   Fixed the flaky retry test. Tests pass. Not committed
 Messages
   #7   unread  from solar-isle/planner  1m  Pick a cache
 
@@ -130,6 +130,7 @@ the app.
 | `done N`, `snooze N 1h`, `reopen N` | File an item. |
 | `start [--on HOST] [--codex] [-C DIR] [--name N] [-s SESSION] [PROMPT\|-]` | Start Claude Code (or Codex) in a new tab, here or on another Rex host. |
 | `hosts` | The machines the hub follows, and whether each is reachable. |
+| `hooks [install\|remove]` | The agents' Stop hooks, which put what an agent said when it finished on its Finished item. |
 | `rpc [REQUEST]` | Answer one request from this machine's hub (what `inbox_rpc` runs). |
 | `send --to NAME [--subject S] TEXT\|-` | Message an agent's pane (`reviewer`, `session/pane`, a block id) or `me`. |
 | `reply N TEXT\|-` | Answer a message; it goes to the other side. |
@@ -198,6 +199,8 @@ its pane, where you can read it.
   `error` becomes **failed**, and a root `done` becomes **finished**. Each
   clears itself when the record changes or the pane closes. Rex drops `done`
   once you visit the pane.
+- **What a finished agent did** comes from its own Stop hook (see
+  [What agents report when they finish](#what-agents-report-when-they-finish)).
 - **Messages** queue in the hub. A message is pasted into an agent's prompt
   (then Enter) once the pane has been `idle` or `done` for two seconds. Plain
   shell panes are never typed into.
@@ -207,6 +210,52 @@ its pane, where you can read it.
   Escape. Other agents can only be opened, until their prompts are checked.
 - **Notifications** cover needs you, failed, and messages to you. Each
   waits two seconds, and is dropped if you already answered.
+
+## What agents report when they finish
+
+Program status says *that* an agent finished, not what it did. Both
+Claude Code and Codex run a Stop hook as each turn ends, with the agent's
+last message. Install rex-inbox's hook on each machine with agents:
+
+```
+$ rex-inbox hooks install
+Claude Code  added the Stop hook to ~/.claude/settings.json
+Codex        added the Stop hook to ~/.codex/hooks.json
+Codex        Codex asks you to trust the new hook once: answer it when it starts
+```
+
+From then on, an agent's Finished item says what it said last, in a
+paragraph of up to 300 characters: in `ls`, in the apps, and under Agents.
+The summary goes when the agent's next turn starts.
+
+- **Beside your other hooks.** It adds one entry at the end of `Stop`,
+  writes through symlinks, and keeps the rest of each file as it was.
+  `rex-inbox hooks remove` takes it out again; `rex-inbox hooks` shows where
+  it stands, and `rex-inbox status` says when it's missing.
+- **It never holds up the agent.** The hook prints nothing, always exits 0,
+  and sends in the background. Outside a Rex pane it does nothing. Sends
+  that fail are logged to `hook.log` in the state folder.
+- **Other machines** send it to the hub through `inbox_rpc`, like
+  everything else (see [Agents on other machines](#agents-on-other-machines)).
+- **Agents already running** pick it up when they next start.
+
+The hook makes the summary as good as the agent's last message. To make
+that a summary, and to have agents leave notes and messages through the
+inbox, say so in your global agent instructions (`~/.claude/CLAUDE.md`,
+`~/.codex/AGENTS.md`), for example:
+
+```markdown
+## Rex inbox
+
+In a Rex pane (REX_SESSION is set), rex-inbox reaches the user and other agents.
+
+- End a finished task with a short summary: what changed, how it was checked,
+  and what's left. The inbox shows your last message on its Finished item.
+- When you need a decision and the user may be away, or they should know
+  something later, leave a note: `rex-inbox send --to me "..."`.
+- To work with other agents, use the rex-inbox skill. Answer a
+  "[rex-inbox] Message #N" with `rex-inbox reply N`.
+```
 
 ## With rex-reviewer
 
