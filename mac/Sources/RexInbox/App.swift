@@ -22,13 +22,6 @@ struct RexInboxApp: App {
         .defaultSize(width: 980, height: 700)
         .defaultLaunchBehavior(.suppressed)
 
-        Window("New Agent", id: "new-agent") {
-            NewAgentWindow(store: store)
-        }
-        .defaultSize(width: 600, height: 560)
-        .windowResizability(.contentMinSize)
-        .defaultLaunchBehavior(.suppressed)
-
         Window("Review", id: "preview") {
             PreviewWindow(store: store)
         }

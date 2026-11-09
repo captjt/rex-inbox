@@ -10,7 +10,7 @@ enum SidebarItem: Hashable {
 struct MainWindow: View {
     let store: Store
     @State private var selection: SidebarItem? = .inbox(.all)
-    @Environment(\.openWindow) private var openWindow
+    @State private var composing = false
 
     init(store: Store, selection: SidebarItem = .inbox(.all)) {
         self.store = store
@@ -59,7 +59,7 @@ struct MainWindow: View {
             .toolbar {
                 ToolbarItem {
                     Button {
-                        openWindow(id: "new-agent")
+                        composing = true
                     } label: {
                         Label("New Agent", systemImage: "plus")
                     }
@@ -69,6 +69,10 @@ struct MainWindow: View {
             }
         }
         .frame(minWidth: 780, minHeight: 520)
+        .sheet(isPresented: $composing) {
+            NewAgentForm(store: store) { _ in composing = false }
+                .frame(width: 600)
+        }
         // In the Dock and the app switcher while the window is open.
         .onAppear { NSApp.setActivationPolicy(.regular) }
         .onDisappear { NSApp.setActivationPolicy(.accessory) }
