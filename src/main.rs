@@ -10,6 +10,7 @@ mod agents;
 mod api;
 mod approve;
 mod deliver;
+mod fleet;
 mod hub;
 mod messages;
 mod methods;
@@ -21,6 +22,7 @@ mod reviewer;
 mod rex;
 mod service;
 mod show;
+mod start;
 mod store;
 mod time;
 mod web;
@@ -67,6 +69,34 @@ enum Cmd {
         /// Every pane, not just agents.
         #[arg(long)]
         all: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Start Claude Code (or Codex) in a new tab, here or on another Rex host.
+    Start {
+        /// The host, by its label in rex hosts (default: this machine).
+        #[arg(long)]
+        on: Option<String>,
+        /// Codex instead of Claude Code.
+        #[arg(long)]
+        codex: bool,
+        /// The folder (default: this one here, ~ on another host).
+        #[arg(long, short = 'C')]
+        cwd: Option<String>,
+        /// The pane's name, to message it by (default: claude, claude-2, …).
+        #[arg(long)]
+        name: Option<String>,
+        /// The Rex session for its tab, made if missing (default: inbox).
+        #[arg(long, short)]
+        session: Option<String>,
+        #[arg(long)]
+        json: bool,
+        /// The first prompt; `-` reads stdin. Without one the agent waits.
+        #[arg(trailing_var_arg = true)]
+        prompt: Vec<String>,
+    },
+    /// The machines the hub follows: where agents can start.
+    Hosts {
         #[arg(long)]
         json: bool,
     },
@@ -226,7 +256,7 @@ async fn main() {
 
 async fn run(cli: Cli) -> Result<()> {
     match cli.cmd {
-        Cmd::Hub => hub::run(paths::socket(), paths::db(), vec![rex::Rex::local()]).await,
+        Cmd::Hub => hub::run(paths::socket(), paths::db()).await,
         Cmd::Up => service::up(),
         Cmd::Down => service::down(),
         Cmd::Logs { lines } => service::logs(lines),
@@ -288,6 +318,45 @@ async fn run(cli: Cli) -> Result<()> {
             Ok(())
         }
         Cmd::Name { name } => api::call("name", json!({ "caller": caller(false), "name": name })).map(|_| ()),
+        Cmd::Start { on, codex, cwd, name, session, json, prompt } => {
+            let host = on.unwrap_or_else(|| "local".into());
+            let cwd = match cwd {
+                Some(c) => Some(std::path::absolute(&c).ok().filter(|_| host == "local" && !c.starts_with('~')).map_or(c, |p| p.display().to_string())),
+                None if host == "local" => Some(std::env::current_dir()?.display().to_string()),
+                None => None,
+            };
+            let prompt = match prompt.as_slice() {
+                [dash] if dash == "-" => Some(read_stdin()?),
+                [] => None,
+                words => Some(words.join(" ")),
+            };
+            let v = api::call(
+                "agents.start",
+                json!({
+                    "host": host,
+                    "program": if codex { "codex" } else { "claude" },
+                    "cwd": cwd,
+                    "name": name,
+                    "session": session,
+                    "prompt": prompt,
+                }),
+            )?;
+            if json {
+                return print_json(&v);
+            }
+            let s = |k: &str| v[k].as_str().unwrap_or("?").to_string();
+            println!("Started {} as {} in {}", agents::display(if codex { "codex" } else { "claude-code" }), s("address"), paths::tilde(&s("cwd")));
+            println!("Message it: rex-inbox send --to {} …", s("address"));
+            Ok(())
+        }
+        Cmd::Hosts { json } => {
+            let v = api::call("hosts.list", json!({}))?;
+            if json {
+                return print_json(&v);
+            }
+            show::hosts(&list(&v));
+            Ok(())
+        }
         Cmd::Agents { all, json } => {
             let v = api::call("panes.list", json!({ "all": all }))?;
             if json {
@@ -345,6 +414,9 @@ async fn run(cli: Cli) -> Result<()> {
                     h["panes"],
                     h["agents"]
                 );
+                if let Some(e) = h["error"].as_str().filter(|_| state == "disconnected") {
+                    println!("    {e}");
+                }
             }
             println!("  {} open items", v["open_alerts"]);
             Ok(())

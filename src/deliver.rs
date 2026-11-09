@@ -105,14 +105,17 @@ fn plan(shared: &Shared, last: &HashMap<String, (Option<String>, Instant)>) -> V
     due
 }
 
-/// The text pasted into the agent's pane.
+/// The text pasted into the agent's pane. An agent on another host can't
+/// reach this hub with the CLI yet (its `rex-inbox` finds that machine's
+/// hub, or none), so it gets the whole message and answers in its pane.
 pub fn render(m: &Message) -> String {
+    let remote = m.to_host.as_deref().is_some_and(|h| h != "local");
     let from = if m.from_block.is_none() { "the user (through rex-inbox)".to_string() } else { m.from_addr.clone() };
     let mut head = format!("[rex-inbox] Message #{} from {from}", m.id);
     if let Some(r) = m.reply_to {
         head.push_str(&format!(", replying to #{r}"));
     }
-    if m.body.len() > MAX_PASTE {
+    if m.body.len() > MAX_PASTE && !remote {
         return format!(
             "{head}{}. It's long ({} lines): read it with `rex-inbox read {}`.",
             m.subject.as_ref().map(|s| format!(": {s}")).unwrap_or_default(),
@@ -126,10 +129,17 @@ pub fn render(m: &Message) -> String {
     }
     out.push_str("\n\n");
     out.push_str(m.body.trim_end());
-    out.push_str(&format!(
-        "\n\nReply with `rex-inbox reply {} \"...\"` (or `rex-inbox reply {} -` with the text on stdin).",
-        m.id, m.id
-    ));
+    if remote {
+        out.push_str(
+            "\n\nThis pane is on another machine, where rex-inbox commands don't reach the sender. \
+             Answer here, in your reply to this turn: they read it in this pane.",
+        );
+    } else {
+        out.push_str(&format!(
+            "\n\nReply with `rex-inbox reply {} \"...\"` (or `rex-inbox reply {} -` with the text on stdin).",
+            m.id, m.id
+        ));
+    }
     out
 }
 
@@ -174,5 +184,48 @@ async fn deliver(shared: &Shared, d: &Due) -> bool {
             emit_updated(&core, r.ok().flatten());
             false
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn msg(host: &str, body: &str) -> Message {
+        Message {
+            id: 9,
+            thread_id: 9,
+            reply_to: None,
+            from_addr: "me".into(),
+            from_host: None,
+            from_session: None,
+            from_block: None,
+            to_addr: "inbox/claude".into(),
+            to_host: Some(host.into()),
+            to_session: Some("s".into()),
+            to_block: Some("b".into()),
+            subject: None,
+            body: body.into(),
+            status: "queued".into(),
+            created_at: String::new(),
+            delivered_at: None,
+            read_at: None,
+            done_at: None,
+            attempts: 0,
+            error: None,
+        }
+    }
+
+    #[test]
+    fn remote_panes_answer_in_place() {
+        let here = render(&msg("local", "hi"));
+        assert!(here.contains("rex-inbox reply 9"));
+        let there = render(&msg("studio", "hi"));
+        assert!(!there.contains("rex-inbox reply"));
+        assert!(there.contains("Answer here"));
+        // Long: a pointer here, the whole text there.
+        let long = "x\n".repeat(MAX_PASTE);
+        assert!(render(&msg("local", &long)).contains("rex-inbox read 9"));
+        assert!(render(&msg("studio", &long)).contains(long.trim_end()));
     }
 }

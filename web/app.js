@@ -17,7 +17,10 @@ const state = {
   expanded: new Set(), // item ids showing all their text
   busy: new Map(), // item id -> the action running
   drafts: {},
-  sheet: null, // what the sheet shows: {type: "item"|"message"|"pane"|"menu", ...}
+  sheet: null, // what the sheet shows: {type: "item"|"message"|"pane"|"menu"|"new", ...}
+  // The new-agent sheet's form; kept between openings, less the prompt once sent.
+  draft: { host: "local", program: "claude", cwd: "", prompt: "", name: "", session: "" },
+  hosts: [],
   hold: 0, // > 0 while a swipe or an animation runs: refreshes wait
   pending: false,
 };
@@ -50,6 +53,9 @@ const PATHS = {
   chevron: '<path d="M9.5 5.5l6.5 6.5-6.5 6.5"/>',
   refresh: '<path d="M20.25 12a8.25 8.25 0 1 1-2.4-5.8"/><path d="M20.25 3.75v5h-5"/>',
   wrap: '<path d="M3.5 6h17M3.5 12h14a3 3 0 0 1 0 6H12"/><path d="M14 15.5l-2.5 2.5 2.5 2.5M3.5 18h5"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  folder: '<path d="M2.75 7.25a2 2 0 0 1 2-2h4.6l2 2.5h7.9a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2H4.75a2 2 0 0 1-2-2z"/>',
+  up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
   wifi: '<path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.75 16a5 5 0 0 1 6.5 0"/><path d="M12 19.5h.01"/>',
 };
 function ic(name, cls = "") {
@@ -198,6 +204,9 @@ function messageFrom(m) {
 const paneKey = (p) => `${p.host}|${p.block_id}`;
 const paneName = (p) => p.label || shortId(p.block_id);
 const paneSession = (p) => p.session_label || shortId(p.session_id);
+const isLocal = (x) => !x.host || x.host === "local";
+// What the Agents list groups by: the session, and its host when it's another machine.
+const paneGroup = (p) => (isLocal(p) ? paneSession(p) : `${p.host} · ${paneSession(p)}`);
 
 // Markdown's common parts, for a review as it will post: paragraphs, bullets,
 // headings, rules, bold, italics, code and links (shown as text).
@@ -484,13 +493,17 @@ function markClamped(root) {
 
 function agentsView() {
   if (!state.loaded) return state.conn === "off" ? offline() : "";
-  if (!state.panes.length) return empty("agents", "t-gray", "No agents running", "Claude Code and Codex panes in Rex show up here.");
+  const start = `<div class="actions new-agent"><button class="btn wide primary" data-act="new-agent">${ic("plus")}New Agent</button></div>`;
+  if (!state.panes.length) return start + empty("agents", "t-gray", "No agents running", "Claude Code and Codex panes in Rex show up here.");
   const groups = {};
-  for (const p of state.panes) (groups[paneSession(p)] ||= []).push(p);
-  return Object.keys(groups)
-    .sort()
-    .map((s) => section(s, groups[s].length) + `<div class="group">${groups[s].map(agentRow).join("")}</div>`)
-    .join("");
+  const local = {};
+  for (const p of state.panes) {
+    (groups[paneGroup(p)] ||= []).push(p);
+    local[paneGroup(p)] = isLocal(p);
+  }
+  // This Mac's sessions first, then other hosts'.
+  const order = Object.keys(groups).sort((a, b) => (local[a] === local[b] ? a.localeCompare(b) : local[a] ? -1 : 1));
+  return start + order.map((s) => section(s, groups[s].length) + `<div class="group">${groups[s].map(agentRow).join("")}</div>`).join("");
 }
 
 function agentRow(p) {
@@ -615,6 +628,11 @@ function sheetHtml(s) {
       </div>
       <div class="sheet-foot" id="sheet-foot">${composer(`p${s.key}`, `Message ${paneName(p)}…`, "pane-send", s.key)}<div class="hint">It goes in when the agent is idle.</div></div>`;
   }
+  if (s.type === "new") {
+    return `${sheetHead("plus", "t-blue", "New Agent", "Claude Code or Codex, on any Rex host")}
+      <div class="sheet-body" id="new-body">${newBody()}</div>
+      <div class="sheet-foot" id="sheet-foot">${newFoot()}</div>`;
+  }
   if (s.type === "menu") {
     const a = findAlert(s.id) || s.alert;
     const rows = [];
@@ -630,6 +648,122 @@ function sheetHtml(s) {
       <div class="sheet-body">${menu(rows)}${group2.length ? menu(group2) : ""}${menu(group3)}</div>`;
   }
   return "";
+}
+
+// ---- the new-agent sheet ----
+
+const hostTitle = (h) => (h === "local" ? "This Mac" : h);
+const chosenHost = () => state.hosts.find((h) => h.host === state.draft.host);
+// A path with the host's home as ~.
+function tildeOn(path, h) {
+  const home = h && h.home;
+  return home && path && path.startsWith(home) ? "~" + path.slice(home.length) : path || "";
+}
+
+function newBody() {
+  const d = state.draft;
+  const h = chosenHost();
+  const s = state.sheet || {};
+  const chip = (on, act, value, label, off = false) =>
+    `<button class="chip ${on ? "on" : ""}" data-act="${act}" data-value="${esc(value)}" ${off ? "disabled" : ""}>${esc(label)}</button>`;
+  let html = `<div class="label" style="margin-top:0">Machine</div><div class="chips">`;
+  html += state.hosts.length
+    ? state.hosts.map((x) => chip(x.host === d.host, "na-host", x.host, x.connected ? hostTitle(x.host) : `${hostTitle(x.host)} · unreachable`)).join("")
+    : `<span class="hint">Loading…</span>`;
+  html += `</div>`;
+  if (h && !h.connected) html += `<div class="field-note bad">${esc(h.error || "Rex there can't be reached.")}</div>`;
+  html += `<div class="label">Agent</div><div class="chips">${chip(d.program === "claude", "na-prog", "claude", "Claude Code")}${chip(d.program === "codex", "na-prog", "codex", "Codex")}</div>`;
+  html += `<div class="label">Folder<span class="grow"></span><button data-act="na-browse">${ic("folder")}${s.browsing ? "Hide" : "Browse"}</button></div>
+    <input class="field" data-field="cwd" value="${esc(d.cwd)}" placeholder="~" autocapitalize="off" autocorrect="off" spellcheck="false">`;
+  if (s.browsing) {
+    const l = s.listing;
+    if (s.browseError) html += `<div class="field-note bad">${esc(s.browseError)}</div>`;
+    else if (!l) html += `<div class="field-note">Loading…</div>`;
+    else {
+      html += `<div class="menu browse"><button data-act="na-dir" data-value="${esc(parentDir(l.path))}" ${l.path === "/" ? "disabled" : ""}>${ic("up")}<span class="path">${esc(tildeOn(l.path, h))}</span></button>`;
+      html += l.dirs.map((x) => `<button data-act="na-dir" data-value="${esc(joinDir(l.path, x))}">${ic("folder")}${esc(x)}</button>`).join("");
+      html += l.dirs.length ? "" : `<div class="field-note">No folders in here.</div>`;
+      html += `</div>`;
+    }
+  } else if (h && h.folders && h.folders.length) {
+    html += `<div class="chips scroll">${h.folders.map((f) => chip(f === d.cwd, "na-folder", f, tildeOn(f, h))).join("")}</div>`;
+  }
+  html += `<div class="label">Prompt</div>
+    <textarea class="field" rows="4" data-field="prompt" placeholder="What should it do? Leave empty and it waits for you.">${esc(d.prompt)}</textarea>`;
+  html += `<div class="label">Name and session</div>
+    <div class="pair"><input class="field" data-field="name" value="${esc(d.name)}" placeholder="${esc(d.program)}" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <input class="field" data-field="session" value="${esc(d.session)}" placeholder="inbox" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+    <div class="field-note">A new tab in this session, made if it doesn't exist. Other agents message it by its name.</div>`;
+  return html;
+}
+
+function newFoot() {
+  const s = state.sheet || {};
+  const h = chosenHost();
+  const ok = h && h.connected && !s.busy;
+  return `${s.error ? `<div class="field-note bad">${esc(s.error)}</div>` : ""}<div class="actions"><button class="btn wide primary" data-act="na-start" ${ok ? "" : "disabled"}>${s.busy ? '<span class="spin"></span>' : ic("send")}Start</button></div>`;
+}
+
+function paintNew() {
+  if (!state.sheet || state.sheet.type !== "new") return;
+  const body = $("new-body");
+  const foot = $("sheet-foot");
+  if (body) {
+    const y = body.scrollTop;
+    body.innerHTML = newBody();
+    body.scrollTop = y;
+  }
+  if (foot) foot.innerHTML = newFoot();
+}
+
+const parentDir = (p) => p.replace(/\/[^/]+\/?$/, "") || "/";
+const joinDir = (dir, name) => (dir.endsWith("/") ? dir : dir + "/") + name;
+
+async function browse(path) {
+  const s = state.sheet;
+  try {
+    const l = await call("dirs.list", { host: state.draft.host, path });
+    if (state.sheet !== s) return;
+    if (l.status !== "ok") {
+      s.browseError = `${tildeOn(l.path, chosenHost())} isn't a folder there.`;
+    } else {
+      s.listing = l;
+      s.browseError = null;
+      state.draft.cwd = tildeOn(l.path, chosenHost());
+    }
+  } catch (e) {
+    s.browseError = e.message;
+  }
+  paintNew();
+}
+
+async function startAgent() {
+  const s = state.sheet;
+  const d = state.draft;
+  s.busy = true;
+  s.error = null;
+  paintNew();
+  try {
+    const r = await call("agents.start", {
+      host: d.host,
+      program: d.program,
+      cwd: d.cwd.trim(),
+      prompt: d.prompt,
+      name: d.name.trim() || null,
+      session: d.session.trim() || null,
+    });
+    d.prompt = "";
+    d.name = "";
+    haptic();
+    toast(`Started ${appName(d.program === "codex" ? "codex" : "claude-code")} as ${r.address}`);
+    closeSheet();
+    state.tab = "agents";
+    refresh();
+  } catch (e) {
+    s.busy = false;
+    s.error = e.message;
+    paintNew();
+  }
 }
 
 function paneSub(p) {
@@ -686,6 +820,15 @@ function refreshSheet() {
 }
 
 async function sheetLoad(s, quiet = false) {
+  if (s.type === "new") {
+    try {
+      state.hosts = await call("hosts.list");
+      if (!state.hosts.some((h) => h.host === state.draft.host)) state.draft.host = "local";
+    } catch (e) {
+      s.error = e.message;
+    }
+    return paintNew();
+  }
   try {
     if (s.type === "item") {
       const a = findAlert(s.id) || s.alert;
@@ -957,6 +1100,10 @@ function autosize(t) {
 
 document.addEventListener("input", (e) => {
   const t = e.target;
+  if (t.dataset && t.dataset.field) {
+    state.draft[t.dataset.field] = t.value;
+    return;
+  }
   if (!t.dataset || !t.dataset.draft) return;
   state.drafts[t.dataset.draft] = t.value;
   autosize(t);
@@ -1023,6 +1170,28 @@ document.addEventListener("click", async (e) => {
     }
     case "enable":
       return enablePush();
+    case "new-agent":
+      return openSheet({ type: "new" });
+    case "na-host":
+      if (state.draft.host !== b.dataset.value) {
+        Object.assign(state.draft, { host: b.dataset.value, cwd: "", session: "" });
+        Object.assign(state.sheet, { listing: null, browsing: false, error: null });
+      }
+      return paintNew();
+    case "na-prog":
+      state.draft.program = b.dataset.value;
+      return paintNew();
+    case "na-folder":
+      state.draft.cwd = b.dataset.value;
+      return paintNew();
+    case "na-browse":
+      state.sheet.browsing = !state.sheet.browsing;
+      paintNew();
+      return state.sheet.browsing && browse(state.draft.cwd.trim() || "~");
+    case "na-dir":
+      return browse(b.dataset.value);
+    case "na-start":
+      return startAgent();
   }
 });
 

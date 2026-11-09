@@ -153,6 +153,24 @@ pub fn panes(list: &[Value]) {
     table(&rows, "");
 }
 
+pub fn hosts(list: &[Value]) {
+    let rows: Vec<Vec<String>> = list
+        .iter()
+        .map(|h| {
+            let up = h["connected"].as_bool() == Some(true);
+            let n = h["agents"].as_u64().unwrap_or(0);
+            let state = if up { format!("{n} agent{}", if n == 1 { "" } else { "s" }) } else { "unreachable".into() };
+            let sessions: Vec<&str> = h["sessions"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+            let detail = if up { sessions.join(", ") } else { h["error"].as_str().unwrap_or_default().to_string() };
+            vec![str(h, "host").to_string(), state, dim(&detail)]
+        })
+        .collect();
+    table(&rows, "");
+    if list.len() < 2 {
+        println!("{}", dim("Add machines to Rex with rex hosts add LABEL ENDPOINT; the hub follows them."));
+    }
+}
+
 pub fn alert_detail(a: &Value) {
     println!("{} #{}  {}", bold(&str(a, "category").replace('_', " ")), a["id"], dim(str(a, "status")));
     let rows = vec![

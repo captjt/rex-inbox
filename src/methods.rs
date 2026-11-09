@@ -43,7 +43,8 @@ fn pane_view(core: &crate::hub::Core, p: &Pane, subject: Option<String>) -> Pane
         block_id: p.block_id.clone(),
         label: p.label.clone(),
         app: p.app().map(str::to_string),
-        state: head.map(|r| r.state.clone()),
+        // An agent that hasn't reported yet is starting up.
+        state: head.map(|r| r.state.clone()).or_else(|| p.is_agent().then(|| "starting".to_string())),
         kind: head.and_then(|r| r.kind.clone()),
         msg: head.and_then(|r| r.msg.clone()),
         title: head.and_then(|r| r.title.clone()),
@@ -71,6 +72,7 @@ pub async fn dispatch(shared: &Shared, method: &str, params: Value) -> Result<Va
                     json!({
                         "host": h,
                         "connected": m.is_some_and(|m| m.connected),
+                        "error": m.and_then(|m| m.error.clone()),
                         "sessions": m.map_or(0, |m| m.sessions.len()),
                         "panes": m.map_or(0, |m| m.panes.len()),
                         "agents": m.map_or(0, |m| m.panes.values().filter(|p| p.is_agent()).count()),
@@ -247,6 +249,18 @@ pub async fn dispatch(shared: &Shared, method: &str, params: Value) -> Result<Va
             let lines = params["lines"].as_u64().unwrap_or(30) as usize;
             Ok(json!({ "text": crate::approve::screen(shared, id(&params)?, lines).await? }))
         }
+
+        // The hosts a new agent can go on. Asking reads rex hosts again
+        // soon, so a host just added shows up.
+        "hosts.list" => {
+            let mut core = shared.lock();
+            core.fleet.notify_one();
+            Ok(crate::start::hosts(&mut core))
+        }
+
+        "dirs.list" => crate::start::dirs(shared, &params).await,
+
+        "agents.start" => crate::start::start(shared, &params).await,
 
         m if m.starts_with("messages.") || m == "whoami" || m == "name" => crate::messages::dispatch(shared, m, &params).await,
 

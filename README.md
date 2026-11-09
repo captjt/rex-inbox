@@ -128,12 +128,41 @@ the app.
 | `preview N` | A review rex-reviewer has ready, as it would post. |
 | `open N` | Bring the item's pane to the front in Rex. |
 | `done N`, `snooze N 1h`, `reopen N` | File an item. |
+| `start [--on HOST] [--codex] [-C DIR] [--name N] [-s SESSION] [PROMPT\|-]` | Start Claude Code (or Codex) in a new tab, here or on another Rex host. |
+| `hosts` | The machines the hub follows, and whether each is reachable. |
 | `send --to NAME [--subject S] TEXT\|-` | Message an agent's pane (`reviewer`, `session/pane`, a block id) or `me`. |
 | `reply N TEXT\|-` | Answer a message; it goes to the other side. |
 | `inbox`, `read N`, `wait [--thread N] [--timeout S]` | An agent's own messages. |
 | `name NAME`, `whoami` | Name this pane so others can reach it. |
 | `web` | The phone web app's address, and how to publish it. |
 | `status`, `watch`, `up`, `down`, `logs` | The hub. |
+
+## Starting agents, on any machine
+
+The ＋ in the menu bar panel, New Agent in the window's toolbar, and New
+Agent on the phone's Agents tab all start an agent. So does the CLI:
+
+```
+$ rex-inbox start --on studio -C ~/code/api "Fix the flaky retry test"
+Started Claude Code as studio:inbox/claude in ~/code/api
+```
+
+- **Machines** are this Mac and every host in `rex hosts`. The hub follows
+  each one and picks up a host added or removed within 30 seconds, so their
+  agents show under Agents and their prompts reach your inbox. To add one,
+  run `rex hosts add LABEL ENDPOINT`, with Rex running on that machine.
+- **What it runs** is Claude Code or Codex only, with your prompt as its
+  first instruction. Without a prompt, the agent waits in its pane.
+- **Where it goes** is a new tab in the host's `inbox` session, or in a
+  session you name. The session is created if it doesn't exist. The pane is
+  named `claude`, `claude-2`, and so on (or the name you give), so other
+  agents can message it.
+- **The folder** must exist on that machine. Pick from the folders its
+  agents are in, or browse its folders from the app or the phone.
+
+An agent on another machine takes messages and its prompts can be approved
+like any other. Its own `rex-inbox` commands don't reach this hub yet, so
+it answers messages in its pane. See [DESIGN.md](DESIGN.md#known-gaps).
 
 ## How it works
 

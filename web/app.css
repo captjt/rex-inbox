@@ -376,6 +376,26 @@ body.kb #sheet { padding-bottom: 0; }
 .quote { border-left: 3px solid var(--fill-2); padding: 2px 0 2px 12px; color: var(--muted); white-space: pre-wrap; word-break: break-word; font-size: 15px; }
 
 .hint { color: var(--muted); font-size: 14px; text-align: center; }
+
+/* ---- the new-agent sheet ---- */
+.new-agent { margin: 8px 0 4px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chips.scroll { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-top: 8px; padding-bottom: 2px; }
+.chips.scroll::-webkit-scrollbar { display: none; }
+.chip:disabled { opacity: 0.45; }
+.field {
+  display: block; width: 100%; box-sizing: border-box; min-height: 44px; resize: none;
+  font: inherit; font-size: 17px; color: var(--text);
+  background: var(--card); border: 0.5px solid var(--sep); border-radius: 12px; padding: 10px 14px; outline: none;
+}
+.field:focus { border-color: color-mix(in srgb, var(--blue) 60%, transparent); }
+textarea.field { min-height: 104px; }
+.pair { display: flex; gap: 8px; }
+.pair .field { flex: 1; min-width: 0; }
+.field-note { color: var(--muted); font-size: 14px; margin: 6px 2px 0; }
+.field-note.bad { color: var(--red); }
+.menu.browse { margin-top: 8px; max-height: 260px; overflow-y: auto; }
+.menu.browse .path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gone { color: var(--muted); font-size: 15px; display: flex; align-items: center; gap: 8px; justify-content: center; padding: 6px 0; }
 
 @media (prefers-reduced-motion: reduce) {

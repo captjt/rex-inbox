@@ -47,6 +47,8 @@ pub struct Core {
     pub web_url: Option<String>,
     /// Which panes rex-reviewer runs, when it runs alongside.
     pub reviewer: crate::reviewer::Ledger,
+    /// Wakes the fleet to read `rex hosts` again now.
+    pub fleet: Arc<tokio::sync::Notify>,
 }
 
 #[derive(Clone)]
@@ -197,9 +199,10 @@ pub async fn watch_host(shared: Shared, rex: Rex) {
         };
         {
             let mut core = shared.lock();
-            if let Some(m) = core.hosts.get_mut(&host) {
-                m.connected = false;
-            }
+            let m = core.hosts.entry(host.clone()).or_insert_with(|| HostMirror::new(&host));
+            m.connected = false;
+            // Rex's own words, without the command that met them.
+            m.error = err.as_deref().map(|e| e.rsplit("Error: ").next().unwrap_or(e).trim().to_string());
             core.emit(HubEvent::HostDisconnected { host: host.clone(), error: err.clone() });
         }
         say!("lost {host}: {}", err.as_deref().unwrap_or("event stream ended"));
@@ -440,25 +443,24 @@ async fn resync(shared: &Shared, rex: &Rex, only: Option<BTreeSet<String>>) -> R
 
 // ---- the socket ----
 
-pub async fn run(socket: PathBuf, db: PathBuf, hosts: Vec<Rex>) -> Result<()> {
+pub async fn run(socket: PathBuf, db: PathBuf) -> Result<()> {
     let store = Store::open(&db)?;
     let (events, _) = broadcast::channel(256);
     let shared = Shared(Arc::new(Mutex::new(Core {
         store,
         hosts: BTreeMap::new(),
-        rexes: hosts.iter().map(|r| (r.name().to_string(), r.clone())).collect(),
+        rexes: BTreeMap::new(),
         events,
         started_at: time::now(),
         notifiers: 0,
         owner: None,
         web_url: None,
         reviewer: crate::reviewer::Ledger::new(crate::reviewer::state_dir()),
+        fleet: Arc::new(tokio::sync::Notify::new()),
     })));
     let listener = bind(&socket).await?;
     say!("hub listening on {}", socket.display());
-    for rex in hosts {
-        tokio::spawn(watch_host(shared.clone(), rex));
-    }
+    tokio::spawn(crate::fleet::run(shared.clone()));
     tokio::spawn(crate::deliver::run(shared.clone()));
     tokio::spawn(crate::notify::run(shared.clone()));
     tokio::spawn(crate::push::run(shared.clone()));

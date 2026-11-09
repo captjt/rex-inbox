@@ -465,9 +465,15 @@ struct InboxList: View {
 struct AgentsList: View {
     let store: Store
 
+    /// This Mac's sessions, then other hosts', each as `host · session`.
     private var sessions: [(String, [Pane])] {
-        let groups = Dictionary(grouping: store.panes, by: \.session)
-        return groups.keys.sorted().map { ($0, groups[$0]!) }
+        let groups = Dictionary(grouping: store.panes, by: \.group)
+        return groups.keys
+            .sorted { a, b in
+                let (la, lb) = (groups[a]!.first!.isLocal, groups[b]!.first!.isLocal)
+                return la != lb ? la : a < b
+            }
+            .map { ($0, groups[$0]!) }
     }
 
     var body: some View {

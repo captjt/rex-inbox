@@ -25,12 +25,16 @@ use crate::api;
 use crate::hub::Shared;
 
 /// What the phone may call. No naming panes, no focusing panes on the Mac,
-/// no stopping the hub.
+/// no stopping the hub. It may start an agent, but only Claude Code or Codex
+/// (`agents.start` runs nothing else).
 const ALLOWED: &[&str] = &[
     "status",
     "inbox",
     "panes.list",
     "panes.screen",
+    "hosts.list",
+    "dirs.list",
+    "agents.start",
     "show",
     "screen",
     "approve",

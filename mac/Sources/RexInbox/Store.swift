@@ -11,6 +11,8 @@ final class Store {
     var alerts: [Alert] = []
     var messages: [Message] = []
     var panes: [Pane] = []
+    /// The hosts a new agent can go on, this Mac first.
+    var hosts: [RexHost] = []
     /// The last thing that went wrong, shown until the next action works.
     var problem: String?
     /// A short note on what the last action did.
@@ -101,6 +103,38 @@ final class Store {
     }
 
     func alert(_ id: Int) -> Alert? { alerts.first { $0.id == id } }
+
+    // MARK: - New agents
+
+    func loadHosts() async {
+        do {
+            hosts = try await Hub.call("hosts.list", as: [RexHost].self)
+        } catch {
+            problem = error.localizedDescription
+        }
+    }
+
+    /// A folder's subfolders on a host. Throws with the hub's reason.
+    func dirs(host: String, path: String) async throws -> DirListing {
+        try await Hub.call("dirs.list", ["host": host, "path": path], as: DirListing.self)
+    }
+
+    /// Start an agent; nil and a note when it started, else what went wrong.
+    func startAgent(host: String, program: String, cwd: String, prompt: String, name: String, session: String) async -> String? {
+        var params: [String: Any] = ["host": host, "program": program, "cwd": cwd, "prompt": prompt]
+        if !name.isEmpty { params["name"] = name }
+        if !session.isEmpty { params["session"] = session }
+        do {
+            let s = try await Hub.call("agents.start", params, as: Started.self)
+            let app = program == "codex" ? "Codex" : "Claude Code"
+            flash("Started \(app) as \(s.address) in \(Format.tilde(s.cwd))")
+            problem = nil
+            await refresh()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
 
     // MARK: - Actions
 
