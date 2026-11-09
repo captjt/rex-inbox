@@ -194,7 +194,9 @@ Each step is usable on its own.
 7. Codex's prompt keys, checked against a live prompt.
 8. Other hosts: done, a watcher per `rex hosts` entry, read again every 30
    seconds (`src/fleet.rs`). `REX_INBOX_HOSTS` adds hosts Rex doesn't list.
-   Still to do: the `inbox_rpc` action, so agents there can use the CLI.
+   Done: the `inbox_rpc` action (`rex/init.lua`). On a machine without a hub,
+   the CLI sends each request through `rex -S HOME do inbox_rpc` (`src/api.rs`).
+   The hub finds the calling pane's host by its block id.
 10. Done: start agents from the inbox (`agents.start`, `src/start.rs`) on any
     followed host: Claude Code or Codex in a new tab of the host's `inbox`
     session, in a folder checked through that host's `list_dir`.
@@ -209,12 +211,13 @@ approved from the app.
 - The phone can't open a pane in the Rex iOS app (no documented deep link),
   so "Show pane" shows its screen instead.
 - Claude Code's and Codex's folder-trust prompts at startup report no
-  status, so they never reach the inbox. A pane running `claude` or `codex`
-  is listed under Agents as `starting` until its agent reports, so an agent
-  started from the inbox and stuck there can be found, but the prompt must
-  be answered in Rex.
-- Agents on other hosts can't use the `rex-inbox` CLI yet: it finds that
-  machine's hub, or none. Messages to them say to answer in the pane.
+  status. For an agent the inbox started, 8 quiet seconds raise a needs you
+  item (kind `startup`), but the prompt must be answered in Rex. An agent
+  started some other way shows only as `starting` under Agents.
+- Agents on other hosts need the `rex-inbox` CLI installed there to send,
+  reply or wait. Without it, a message tells them to answer in the pane.
+- Through Rex, `wait` asks again every 45 seconds, and `watch` isn't
+  available.
 - Codex's approval keys aren't verified yet, so Codex prompts get Open only.
 - A message can land while you are typing into an idle agent's prompt. The
   two-second settle makes this unlikely, but not impossible.

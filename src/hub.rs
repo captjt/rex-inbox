@@ -149,7 +149,47 @@ impl Core {
 /// only on blocked and error: a subagent finishing is not news. Nor is an
 /// agent finishing in a pane another tool runs (`managed`, what the pane
 /// does for it): that tool moves on by itself.
+/// How long an agent the inbox started may stay quiet before it counts as
+/// held at a prompt (trusting its folder, say), and how long to keep looking.
+const QUIET: Duration = Duration::from_secs(8);
+const STOP_LOOKING: Duration = Duration::from_secs(600);
+
 fn wanted_alerts(m: &HostMirror, p: &Pane, managed: Option<&str>) -> Vec<AlertFields> {
+    let mut out = startup_alert(m, p).into_iter().collect::<Vec<_>>();
+    out.extend(record_alerts(m, p, managed));
+    out
+}
+
+/// An agent the inbox started that still hasn't reported: it's waiting on
+/// something before it starts, and only someone at its pane can answer.
+fn startup_alert(m: &HostMirror, p: &Pane) -> Option<AlertFields> {
+    let since = m.launched.get(&p.block_id)?;
+    if !p.records.is_empty() || since.elapsed() < QUIET {
+        return None;
+    }
+    Some(AlertFields {
+        key: format!("{}|{}|startup|blocked", p.host, p.block_id),
+        category: "needs_you".into(),
+        host: p.host.clone(),
+        session_id: p.session_id.clone(),
+        block_id: p.block_id.clone(),
+        window_id: p.window_id.clone(),
+        record_id: "startup".into(),
+        state: "blocked".into(),
+        kind: Some("startup".into()),
+        app: p.app().map(str::to_string),
+        title: None,
+        msg: Some("Waiting at a prompt before it starts, such as trusting this folder. Answer it in Rex.".into()),
+        record_updated_at: None,
+        session_label: m.session_label(&p.session_id).map(str::to_string),
+        window_label: m.window_label(&p.session_id, p.window_id.as_deref()).map(str::to_string),
+        pane_label: Some(p.label.clone()).filter(|l| !l.is_empty()),
+        cwd: p.cwd.clone(),
+        subject: None,
+    })
+}
+
+fn record_alerts(m: &HostMirror, p: &Pane, managed: Option<&str>) -> Vec<AlertFields> {
     p.records
         .values()
         .filter_map(|r| {
@@ -236,8 +276,20 @@ async fn follow(shared: &Shared, rex: &Rex) -> Result<()> {
     let mut pending: BTreeSet<String> = BTreeSet::new();
     let mut pending_all = false;
     let mut deadline: Option<Instant> = None;
+    let mut tick = tokio::time::interval(Duration::from_secs(3));
     loop {
         tokio::select! {
+            // Agents the inbox started that are still quiet: time alone
+            // can make one need you.
+            _ = tick.tick() => {
+                let mut core = shared.lock();
+                let Some(m) = core.hosts.get_mut(&host) else { continue };
+                m.launched.retain(|_, t| t.elapsed() < STOP_LOOKING);
+                let quiet: Vec<String> = m.launched.keys().cloned().collect();
+                if !quiet.is_empty() {
+                    core.reconcile(&host, quiet);
+                }
+            }
             line = lines.next_line() => {
                 let Some(line) = line? else { bail!("event stream ended") };
                 let Ok(ev) = serde_json::from_str::<Value>(&line) else { continue };
@@ -586,6 +638,26 @@ mod tests {
         m.apply_pane_status("s1", "b1", vec![rec("error")], None, None);
         let p = &m.panes["b1"];
         assert_eq!(wanted_alerts(&m, p, Some("api#12 · codex reviewer"))[0].category, "failed");
+    }
+
+    #[test]
+    fn a_started_agent_that_stays_quiet_needs_you() {
+        let mut m = HostMirror::new("studio");
+        let fg = json!({ "foreground": { "name": "codex", "cwd": "/w" } });
+        m.apply_pane_status("s1", "b1", vec![], Some(&fg), None);
+        m.launched.insert("b1".into(), std::time::Instant::now());
+        assert!(wanted_alerts(&m, &m.panes["b1"], None).is_empty(), "not before it's had time to start");
+        m.launched.insert("b1".into(), std::time::Instant::now() - QUIET);
+        let w = wanted_alerts(&m, &m.panes["b1"], None);
+        assert_eq!(w.len(), 1);
+        assert_eq!((w[0].category.as_str(), w[0].kind.as_deref(), w[0].app.as_deref()), ("needs_you", Some("startup"), Some("codex")));
+        // Its first report clears it, for good.
+        m.apply_pane_status("s1", "b1", vec![rec("idle")], Some(&fg), None);
+        assert!(wanted_alerts(&m, &m.panes["b1"], None).is_empty());
+        assert!(m.launched.is_empty());
+        // A pane the inbox didn't start never counts.
+        m.apply_pane_status("s1", "b2", vec![], Some(&fg), None);
+        assert!(wanted_alerts(&m, &m.panes["b2"], None).is_empty());
     }
 
     #[test]

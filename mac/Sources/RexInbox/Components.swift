@@ -18,6 +18,7 @@ extension Alert {
         case (_, "permission"): return "hand.raised.fill"
         case (_, "question"): return "questionmark.bubble.fill"
         case (_, "auth"): return "key.fill"
+        case (_, "startup"): return "hourglass"
         default: return "exclamationmark.circle.fill"
         }
     }

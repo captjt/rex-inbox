@@ -75,6 +75,7 @@ pub async fn run(shared: Shared) {
                         (_, Some("permission")) => format!("{app} needs your approval"),
                         (_, Some("question")) => format!("{app} has a question"),
                         (_, Some("auth")) => format!("{app} needs you to sign in"),
+                        (_, Some("startup")) => format!("{app} is waiting to start"),
                         _ => format!("{app} needs you"),
                     };
                     let place = crate::show::place(&serde_json::to_value(&alert).unwrap_or_default());

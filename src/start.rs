@@ -195,6 +195,9 @@ pub async fn start(shared: &Shared, params: &Value) -> Result<Value> {
         argv.push(&first);
     }
     let created = rex.start(session.as_deref().ok_or(session_name), &name, &cwd, &argv).await?;
+    if let Some(m) = shared.lock().hosts.get_mut(&host) {
+        m.launched.insert(created.block_id.clone(), std::time::Instant::now());
+    }
     settle(&rex, &created.session_id, &created.block_id, program, &host).await?;
 
     let address = if host == "local" { format!("{session_name}/{name}") } else { format!("{host}:{session_name}/{name}") };

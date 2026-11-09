@@ -53,6 +53,7 @@ struct Alert: Decodable, Identifiable, Hashable {
         case (_, "permission"): return "\(appName) needs your approval"
         case (_, "question"): return "\(appName) has a question"
         case (_, "auth"): return "\(appName) needs you to sign in"
+        case (_, "startup"): return "\(appName) is waiting to start"
         default: return "\(appName) needs you"
         }
     }
