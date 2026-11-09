@@ -8,7 +8,9 @@ Everything your Rex agents need from you, and messages between them.
 knows what each one is doing: Claude Code and Codex report `working`,
 `blocked`, `done` and `error` on their own (OSC 7501). rex-inbox turns that
 into one inbox, lets agents message each other and you, and lets you
-answer permission prompts without going to the pane.
+answer permission prompts without going to the pane. It also starts new
+agents, on this Mac or any machine in `rex hosts`, and says what each
+agent did when it finished.
 
 The idea comes from [Plannotator](https://github.com/backnotprop/plannotator)'s
 [Inbox](https://plannotator.ai/inbox), by [@backnotprop](https://github.com/backnotprop).
@@ -45,9 +47,13 @@ $ rex-inbox approve 17
 git clone https://github.com/captjt/rex-inbox ~/src/rex-inbox
 cd ~/src/rex-inbox
 cargo install --path .
-rex-inbox up          # the hub, as a LaunchAgent (logs: rex-inbox logs)
-mac/build.sh          # Rex Inbox.app, in ~/Applications
+rex-inbox up              # the hub, as a LaunchAgent (logs: rex-inbox logs)
+rex-inbox hooks install   # agents say what they did when they finish
+mac/build.sh              # Rex Inbox.app, in ~/Applications
 ```
+
+With agents on other machines too, load rex-inbox's Rex action (see
+[Agents on other machines](#agents-on-other-machines)).
 
 macOS only for now. The hub talks to Rex only through the `rex` CLI.
 Agents use it through the same CLI: `rex-inbox send`, `inbox`, `read`, and
@@ -58,7 +64,8 @@ Agents use it through the same CLI: `rex-inbox send`, `inbox`, `read`, and
 A tray in the menu bar turns orange with a count while something needs
 you. Its panel is a quick look; the window button opens a full window with
 a sidebar (Everything, Needs You, Messages, Failed, Finished, Agents). The
-app shows in the Dock while that window is open.
+app shows in the Dock while that window is open. The ＋ starts an agent
+(see [Starting agents](#starting-agents-on-any-machine)).
 
 <table>
   <tr>
@@ -71,7 +78,7 @@ app shows in the Dock while that window is open.
     <td valign="top">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/images/agents-dark.png">
-        <img src="docs/images/agents-light.png" width="400" alt="The Agents tab: each agent pane in a session, with its state, its folder, and what it's doing, and buttons to open it in Rex or message it">
+        <img src="docs/images/agents-light.png" width="400" alt="The Agents tab: each agent pane by session, this Mac's first and then another machine's (studio · inbox), with its state, its folder, and what it's doing or what it said when it finished, and buttons to open it in Rex or message it">
       </picture>
     </td>
   </tr>
@@ -81,13 +88,15 @@ app shows in the Dock while that window is open.
 
 - **Inbox:** approve or deny a prompt, reply to a message, open the pane in
   Rex, snooze, or mark done.
-- **Agents:** every agent pane by session; click one to open it, or
-  message it.
+- **Agents:** every agent pane by session, this Mac's first, then each
+  other machine's; click one to open it, or message it. A finished agent
+  shows what it said last.
 - **Notifications** carry the answer: Approve and Deny, Post and Dismiss
   for a review, or Reply.
 
-`RexInbox --snapshot out.png [--tab agents] [--window]` renders the panel
-(or the window) to a PNG without opening anything on screen.
+`RexInbox --snapshot out.png [--tab agents] [--window | --new-agent]`
+renders the panel (or the window, or the New Agent form) to a PNG without
+opening anything on screen.
 
 `scripts/demo.sh up` fills your inbox with a made-up project (a Rex session
 `acme-api` of stand-in agents, and two messages to you), to try the app
@@ -142,7 +151,29 @@ the app.
 ## Starting agents, on any machine
 
 The ＋ in the menu bar panel, New Agent in the window's toolbar, and New
-Agent on the phone's Agents tab all start an agent. So does the CLI:
+Agent on the phone's Agents tab all start an agent. On the Mac, the form
+takes the panel's place (a sheet over the window); on the phone, it's a
+sheet. Pick the machine and the agent, then the folder there and what to
+do, and press Start (⌘↩ on the Mac).
+
+<table>
+  <tr>
+    <td valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/new-agent-dark.png">
+        <img src="docs/images/new-agent-light.png" width="400" alt="New Agent in the menu bar panel: machine chips (This Mac, studio) with studio chosen, Claude Code or Codex, the folder ~/code/acme-api with the folders studio's agents are in below it, a prompt, the name and session, and Start Claude Code">
+      </picture>
+    </td>
+    <td valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/phone-new-agent-dark.png">
+        <img src="docs/images/phone-new-agent-light.png" width="260" alt="The same New Agent form on the phone, as a sheet over the Agents tab">
+      </picture>
+    </td>
+  </tr>
+</table>
+
+So does the CLI:
 
 ```
 $ rex-inbox start --on studio -C ~/code/api "Fix the flaky retry test"

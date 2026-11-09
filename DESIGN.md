@@ -67,11 +67,20 @@ Each alert is keyed by `host / block / record id` and mirrors a live record:
 | --- | --- | --- |
 | `blocked` | **needs you** | `kind` = permission, question or auth; `msg` says what. |
 | `error` | **failed** | |
-| `done` | **finished** | Rex drops `done` once you go back to the pane and press a key, so these clear themselves. |
+| `done` | **finished** | Rex drops `done` once you go back to the pane and press a key, so these clear themselves. `msg` is what the agent said last, from its Stop hook (below). |
 | `idle`, `working`, removed, pane closed | alert resolves | Kept in history with `resolved_at`. |
 
 Child records (Claude Code subagents report one per task, with a `title`) roll
 up into their pane: a pane shows its most urgent record.
+
+Program status says that an agent finished, not what it did. Claude Code
+and Codex both run a Stop hook as a turn ends, with `last_assistant_message`
+on stdin. `rex-inbox hook stop` (installed by `rex-inbox hooks install`)
+sends it to the hub as `turn.done`, in the background, printing nothing.
+The hub keeps a one-paragraph form on the pane (`src/hooks.rs`) until the
+root record next turns `working`, and a finished alert takes it as `msg`.
+The hook can land before or after the `done` record; either way the alert
+ends up with it.
 
 ## Messages
 
@@ -201,6 +210,8 @@ Each step is usable on its own.
     followed host: Claude Code or Codex in a new tab of the host's `inbox`
     session, in a folder checked through that host's `list_dir`.
 9. Done: rex-reviewer's reviews as items, with its agents folded in (see "With rex-reviewer").
+11. Done: what a finished agent did, from its Stop hook (`src/hooks.rs`,
+    `rex-inbox hooks install`).
 
 Tested on 2026-11-05: two Haiku agents traded messages through the hub, a
 real Claude Code prompt was approved and another denied, and a prompt was
@@ -214,6 +225,9 @@ approved from the app.
   status. For an agent the inbox started, 8 quiet seconds raise a needs you
   item (kind `startup`), but the prompt must be answered in Rex. An agent
   started some other way shows only as `starting` under Agents.
+- Finished items don't notify; their summaries show in the inbox and under
+  Agents. Each machine needs `rex-inbox hooks install`, and Codex asks to
+  trust the hook once.
 - Agents on other hosts need the `rex-inbox` CLI installed there to send,
   reply or wait. Without it, a message tells them to answer in the pane.
 - Through Rex, `wait` asks again every 45 seconds, and `watch` isn't

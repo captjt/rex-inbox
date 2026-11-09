@@ -1,7 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// `RexInbox --snapshot out.png [--tab agents] [--window | --new-agent] [--appearance light]`
+/// `RexInbox --snapshot out.png [--tab agents] [--window | --new-agent [--draft-host H]
+/// [--draft-folder F] [--draft-prompt P]] [--appearance light]`
 /// renders the panel (or the window, with --window, or the panel's New
 /// Agent form, with --new-agent), with the hub's live
 /// data, to a PNG at 2x and quits. It checks the layout without opening
@@ -20,7 +21,16 @@ enum Snapshot {
             await store.refresh()
             let asWindow = args.contains("--window")
             let newAgent = args.contains("--new-agent")
-            if newAgent { await store.loadHosts() }
+            if newAgent {
+                await store.loadHosts()
+                // A start half filled in, to show it.
+                func value(_ flag: String) -> String? {
+                    args.firstIndex(of: flag).flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil }
+                }
+                if let h = value("--draft-host") { store.draft.host = h }
+                if let f = value("--draft-folder") { store.draft.folder = f }
+                if let p = value("--draft-prompt") { store.draft.prompt = p }
+            }
             let root: AnyView = newAgent
                 ? AnyView(PanelView(store: store, composing: true))
                 : asWindow
