@@ -10,6 +10,8 @@ struct PanelView: View {
     let store: Store
     @State private var tab: Tab
     @State private var contentHeight: CGFloat = 320
+    /// Showing the New Agent form in the list's place.
+    @State private var composing: Bool
     @Environment(\.openWindow) private var openWindow
 
     static let width: CGFloat = 600
@@ -21,12 +23,25 @@ struct PanelView: View {
         return max(320, screen - 128)
     }
 
-    init(store: Store, tab: Tab = .inbox) {
+    init(store: Store, tab: Tab = .inbox, composing: Bool = false) {
         self.store = store
         _tab = State(initialValue: tab)
+        _composing = State(initialValue: composing)
     }
 
     var body: some View {
+        if composing {
+            NewAgentForm(store: store) { started in
+                composing = false
+                if started { tab = .agents }
+            }
+            .frame(width: Self.width)
+        } else {
+            list
+        }
+    }
+
+    private var list: some View {
         VStack(spacing: 0) {
             header
             Divider()
@@ -71,8 +86,7 @@ struct PanelView: View {
             .labelsHidden()
             .fixedSize()
             Button {
-                openWindow(id: "new-agent")
-                NSApp.activate()
+                composing = true
             } label: {
                 Image(systemName: "plus")
             }

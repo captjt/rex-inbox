@@ -13,6 +13,8 @@ final class Store {
     var panes: [Pane] = []
     /// The hosts a new agent can go on, this Mac first.
     var hosts: [RexHost] = []
+    /// The New Agent form, kept while the panel is closed.
+    var draft = AgentDraft()
     /// The last thing that went wrong, shown until the next action works.
     var problem: String?
     /// A short note on what the last action did.
