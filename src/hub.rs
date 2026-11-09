@@ -213,7 +213,8 @@ fn record_alerts(m: &HostMirror, p: &Pane, managed: Option<&str>) -> Vec<AlertFi
                 kind: if r.state == "blocked" { r.kind.clone() } else { None },
                 app,
                 title: r.title.clone(),
-                msg: r.msg.clone(),
+                // A finished agent's own last words, when its hook sent them.
+                msg: r.msg.clone().or_else(|| if category == "finished" { p.summary.clone() } else { None }),
                 record_updated_at: r.updated_at.clone(),
                 session_label: m.session_label(&p.session_id).map(str::to_string),
                 window_label: m.window_label(&p.session_id, p.window_id.as_deref()).map(str::to_string),
@@ -658,6 +659,31 @@ mod tests {
         // A pane the inbox didn't start never counts.
         m.apply_pane_status("s1", "b2", vec![], Some(&fg), None);
         assert!(wanted_alerts(&m, &m.panes["b2"], None).is_empty());
+    }
+
+    #[test]
+    fn a_finished_item_says_what_the_agent_did_until_its_next_turn() {
+        let status = |state: &str| {
+            json!({ "type": "session_event", "payload": { "session_id": "s1", "event": { "type": "block_event", "payload": {
+                "block_id": "b1", "creator_name": crate::mirror::TERMINAL, "name": "program_status_changed",
+                "payload": { "id": "", "record": { "state": state, "app": "claude-code" } },
+            } } } })
+        };
+        let mut m = HostMirror::new("local");
+        m.apply_pane_status("s1", "b1", vec![rec("working")], None, None);
+        // The Stop hook can land before or after the done record.
+        m.panes.get_mut("b1").unwrap().summary = Some("Fixed the retry test".into());
+        m.apply_event(&status("done"));
+        let w = wanted_alerts(&m, &m.panes["b1"], None);
+        assert_eq!((w[0].category.as_str(), w[0].msg.as_deref()), ("finished", Some("Fixed the retry test")));
+        // Back at the pane, done drops to idle: the summary stays as its last words.
+        m.apply_event(&status("idle"));
+        assert!(m.panes["b1"].summary.is_some());
+        // The next turn starts: it no longer describes the agent.
+        m.apply_event(&status("working"));
+        assert!(m.panes["b1"].summary.is_none());
+        m.apply_event(&status("done"));
+        assert_eq!(wanted_alerts(&m, &m.panes["b1"], None)[0].msg, None);
     }
 
     #[test]

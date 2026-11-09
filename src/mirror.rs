@@ -66,6 +66,10 @@ pub struct Pane {
     /// The foreground process's name, such as `claude` or `zsh`.
     pub process: Option<String>,
     pub records: BTreeMap<String, Record>,
+    /// What the agent said when its last turn ended, as its Stop hook
+    /// reported it (`rex-inbox hook stop`). Gone when the next turn starts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
 }
 
 impl Pane {
@@ -82,6 +86,7 @@ impl Pane {
             process_cwd: None,
             process: None,
             records: BTreeMap::new(),
+            summary: None,
         }
     }
 
@@ -312,6 +317,12 @@ impl HostMirror {
                     }
                 }
                 if pane.records.get(&rec.id) != Some(&rec) {
+                    // A new turn: what the agent said at the end of the last
+                    // one no longer describes it.
+                    let was = pane.records.get(&rec.id).map(|r| r.state.as_str());
+                    if rec.is_root() && rec.state == "working" && was != Some("working") {
+                        pane.summary = None;
+                    }
                     pane.records.insert(rec.id.clone(), rec);
                     self.launched.remove(&block);
                     changes.panes.insert(block);
