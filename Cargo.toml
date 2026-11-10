@@ -1,6 +1,6 @@
 [package]
 name = "rex-inbox"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "Everything your Rex agents need from you: one inbox, messages between agents, and guarded approvals"
 license = "MIT"
