@@ -56,6 +56,22 @@ fn pane_view(core: &crate::hub::Core, p: &Pane, subject: Option<String>) -> Pane
     }
 }
 
+/// A session's new name, as addresses can use it: `session/pane` and
+/// `host:session/pane` keep their meaning.
+fn session_label(label: &str) -> Result<String> {
+    let label = label.trim();
+    if label.is_empty() {
+        bail!("a name is required");
+    }
+    if label.contains(['/', ':']) {
+        bail!("a session's name can't have / or : in it");
+    }
+    if label.chars().count() > 128 {
+        bail!("a session's name is at most 128 characters");
+    }
+    Ok(label.to_string())
+}
+
 fn id(params: &Value) -> Result<i64> {
     params["id"].as_i64().ok_or_else(|| anyhow!("id is required"))
 }
@@ -217,6 +233,38 @@ pub async fn dispatch(shared: &Shared, method: &str, params: Value) -> Result<Va
             Ok(json!({ "session_id": session, "block_id": block }))
         }
 
+        // Rename a Rex session. Its panes' addresses change with it.
+        "sessions.rename" => {
+            let host = params["host"].as_str().unwrap_or("local").to_string();
+            let sid = params["session_id"].as_str().ok_or_else(|| anyhow!("session_id is required"))?.to_string();
+            let label = session_label(params["label"].as_str().unwrap_or_default())?;
+            let rex = {
+                let core = shared.lock();
+                let m = core.hosts.get(&host).ok_or_else(|| anyhow!("unknown host {host}"))?;
+                if !m.sessions.contains_key(&sid) {
+                    bail!("that session is gone");
+                }
+                if m.sessions.values().any(|s| s.session_id != sid && s.label == label) {
+                    bail!("another session is already called {label}");
+                }
+                core.rex(&host)?
+            };
+            rex.api(Some(&sid), "session.set_label", &json!({ "session_id": sid, "label": label })).await?;
+            // Show it now, rather than after Rex's event comes round.
+            let mut guard = shared.lock();
+            let core = &mut *guard;
+            if let Some(m) = core.hosts.get_mut(&host)
+                && let Some(s) = m.sessions.get_mut(&sid)
+                && s.label != label
+            {
+                s.label = label.clone();
+                let panes: Vec<String> = m.panes.values().filter(|p| p.session_id == sid).map(|p| p.block_id.clone()).collect();
+                core.reconcile(&host, panes);
+                core.renamed(&host, [sid.clone()]);
+            }
+            Ok(json!({ "host": host, "session_id": sid, "label": label }))
+        }
+
         "panes.open" => {
             let host = params["host"].as_str().unwrap_or("local").to_string();
             let block = params["block_id"].as_str().ok_or_else(|| anyhow!("block_id is required"))?.to_string();
@@ -267,5 +315,20 @@ pub async fn dispatch(shared: &Shared, method: &str, params: Value) -> Result<Va
         m if m.starts_with("messages.") || m == "whoami" || m == "name" => crate::messages::dispatch(shared, m, &params).await,
 
         other => bail!("unknown method {other}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::session_label;
+
+    #[test]
+    fn a_session_name_keeps_addresses_working() {
+        assert_eq!(session_label("  guardian ").unwrap(), "guardian");
+        assert_eq!(session_label("Guardian API").unwrap(), "Guardian API");
+        assert!(session_label("   ").is_err());
+        assert!(session_label("a/b").is_err(), "session/pane would split it");
+        assert!(session_label("studio:x").is_err(), "host:session would split it");
+        assert!(session_label(&"x".repeat(129)).is_err());
     }
 }

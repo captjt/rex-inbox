@@ -2,7 +2,8 @@
 // It starts headless Chrome, sizes the page like an iPhone (390x844 at 2x),
 // picks a light or dark appearance, and saves a PNG. Needs Node 22 or later
 // (for its WebSocket) and Google Chrome. With SCRIPT, it runs that in the
-// page once loaded (to open a sheet, say) before the shot.
+// page once loaded (to open a sheet, say) and waits SHOT_WAIT ms (1500)
+// before the shot.
 //
 //   node scripts/phone-shot.mjs URL OUT.png light|dark [SCRIPT]
 import { spawn } from "node:child_process";
@@ -46,7 +47,7 @@ try {
   await sleep(2500);
   if (script) {
     await send("Runtime.evaluate", { expression: script });
-    await sleep(1500);
+    await sleep(Number(process.env.SHOT_WAIT || 1500));
   }
   const shot = await send("Page.captureScreenshot", { format: "png" });
   writeFileSync(out, Buffer.from(shot.result.data, "base64"));

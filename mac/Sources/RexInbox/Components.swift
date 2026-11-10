@@ -329,6 +329,8 @@ struct MessageCard: View {
 struct AgentCard: View {
     let store: Store
     let pane: Pane
+    /// Name the pane by `session/pane`, where it isn't under its session's header.
+    var showPlace = false
     @State private var composing = false
     @State private var draft = ""
 
@@ -340,7 +342,7 @@ struct AgentCard: View {
         Card {
             VStack(alignment: .leading, spacing: 7) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(pane.name).font(.headline)
+                    Text(showPlace ? pane.address : pane.name).font(.headline)
                     Text(Format.appName(pane.app)).font(.subheadline).foregroundStyle(.secondary)
                     StatePill(state: pane.state, kind: pane.kind)
                     if pane.workingChildren > 0 {
@@ -409,7 +411,9 @@ struct InboxList: View {
         case .all:
             if store.alerts.isEmpty && store.messages.isEmpty {
                 EmptyState(symbol: "checkmark.circle", title: "Nothing needs you",
-                           detail: "Agents that are blocked, failed, or finished show up here, with messages to you.")
+                           detail: store.running.isEmpty
+                               ? "Agents that are blocked, failed, or finished show up here, with messages to you."
+                               : "Your agents are below. You'll hear when one needs you.")
             }
             if !store.needsYou.isEmpty {
                 SectionHeader(title: "Needs you", count: store.needsYou.count)
@@ -422,6 +426,10 @@ struct InboxList: View {
             if !store.failed.isEmpty {
                 SectionHeader(title: "Failed", count: store.failed.count)
                 ForEach(store.failed) { AlertCard(store: store, alert: $0) }
+            }
+            if !store.running.isEmpty {
+                SectionHeader(title: "Running", count: store.running.count)
+                ForEach(store.running) { AgentCard(store: store, pane: $0, showPlace: true) }
             }
             if !store.finished.isEmpty {
                 Button {
@@ -483,8 +491,80 @@ struct AgentsList: View {
                        detail: "Claude Code and Codex panes in Rex show up here.")
         }
         ForEach(sessions, id: \.0) { session, panes in
-            SectionHeader(title: session, count: panes.count)
+            SessionHeader(store: store, title: session, panes: panes)
             ForEach(panes) { AgentCard(store: store, pane: $0) }
+        }
+    }
+}
+
+/// A session's header in the Agents list, with a pencil to rename it.
+struct SessionHeader: View {
+    let store: Store
+    let title: String
+    let panes: [Pane]
+    @State private var editing = false
+    @State private var draft = ""
+    @State private var error: String?
+    @State private var saving = false
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        if editing, let pane = panes.first {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    if !pane.isLocal {
+                        Text("\(pane.host) ·").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                    }
+                    TextField("Session name", text: $draft)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 260)
+                        .focused($focused)
+                        .onSubmit { save(pane) }
+                        .onExitCommand { editing = false }
+                    Button("Rename") { save(pane) }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(saving || draft.trimmingCharacters(in: .whitespaces).isEmpty)
+                    Button("Cancel") { editing = false }
+                    Spacer()
+                }
+                .controlSize(.small)
+                if let error {
+                    Text(error).font(.caption).foregroundStyle(.red)
+                }
+            }
+            .padding(.top, 6)
+            .onAppear { focused = true }
+        } else {
+            HStack(spacing: 6) {
+                SectionHeader(title: title, count: panes.count)
+                Button {
+                    draft = panes.first?.sessionLabel ?? ""
+                    error = nil
+                    editing = true
+                } label: {
+                    Image(systemName: "pencil")
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help("Rename this session")
+                .padding(.top, 6)
+                Spacer()
+            }
+        }
+    }
+
+    private func save(_ pane: Pane) {
+        let label = draft.trimmingCharacters(in: .whitespaces)
+        guard !label.isEmpty, !saving else { return }
+        if label == pane.sessionLabel {
+            editing = false
+            return
+        }
+        saving = true
+        Task {
+            error = await store.renameSession(of: pane, to: label)
+            saving = false
+            if error == nil { editing = false }
         }
     }
 }

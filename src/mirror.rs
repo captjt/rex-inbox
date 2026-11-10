@@ -154,6 +154,8 @@ pub struct Changes {
     pub resync: BTreeSet<String>,
     /// The session list changed.
     pub resync_all: bool,
+    /// Sessions whose label changed.
+    pub renamed: BTreeSet<String>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -205,6 +207,11 @@ impl HostMirror {
             self.panes.remove(&b);
             changes.panes.insert(b);
         }
+        // A new label changes every pane's address, and the items that show it.
+        let renamed = self.sessions.get(&sid).is_some_and(|old| old.label != snap.session.label);
+        if renamed {
+            changes.renamed.insert(sid.clone());
+        }
         for (block_id, label, creator, window_id) in snap.blocks {
             let host = self.host.clone();
             let p = self.panes.entry(block_id.clone()).or_insert_with(|| Pane::new(&host, &sid, &block_id));
@@ -212,7 +219,7 @@ impl HostMirror {
             p.label = label;
             p.creator = creator;
             p.window_id = window_id;
-            if moved && !p.records.is_empty() {
+            if (moved || renamed) && !p.records.is_empty() {
                 changes.panes.insert(block_id);
             }
         }

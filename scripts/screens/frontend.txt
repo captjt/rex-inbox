@@ -1,0 +1,46 @@
+❯ The checkout form keeps its own validation in three places. Pull it into one
+  schema, keep the error messages as they are, and add tests.
+
+⏺ I'll find where the checkout form validates today, then move it into one
+  schema the form, the API client and the tests share.
+
+⏺ Searched for 3 patterns, read 4 files (ctrl+o to expand)
+
+⏺ The rules live in three places, and two of them have drifted:
+
+  - CheckoutForm.tsx checks the postcode on blur, with its own regex
+  - api/orders.ts checks it again before sending, without the UK format
+  - useCheckout.ts repeats the email check from the form
+
+  I'll put them in checkout/schema.ts with zod, and keep every message as it
+  reads now.
+
+⏺ Write(src/checkout/schema.ts)
+  ⎿  Wrote 48 lines to src/checkout/schema.ts
+     import { z } from "zod";
+
+     export const postcode = z
+       .string()
+       .trim()
+       .regex(UK_POSTCODE, "Enter a full UK postcode, like SW1A 1AA");
+     … +40 lines (ctrl+o to expand)
+
+⏺ Update(src/checkout/CheckoutForm.tsx)
+  ⎿  Updated src/checkout/CheckoutForm.tsx with 6 additions and 31 removals
+
+⏺ Bash(pnpm vitest run src/checkout)
+  ⎿   ✓ src/checkout/schema.test.ts (14 tests) 9ms
+      ✓ src/checkout/CheckoutForm.test.tsx (9 tests) 212ms
+
+      Test Files  2 passed (2)
+           Tests  23 passed (23)
+
+⏺ The schema is in, and the form uses it. Two subagents are writing the
+  remaining tests and updating the Storybook stories.
+
+✶ Refactoring the checkout form… (3m 12s · ↓ 8.4k tokens · esc to interrupt)
+
+──────────────────────────────────────────────────────────────────────────────
+❯ 
+──────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ accept edits on (shift+tab to cycle)

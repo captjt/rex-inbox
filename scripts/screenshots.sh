@@ -69,12 +69,12 @@ def child($id; $state; $app; $title; $m): {id: $id, state: $state, app: $app, ti
       {window_id: "window:planner", label: "planner", blocks: [
         pane("planner"; $api; "claude"; [root("idle"; "claude-code"; 4)]),
         pane("orders"; $api; "codex"; [root("blocked"; "codex"; 12)
-          + {kind: "question", msg: "Which branch should this PR target: main or release/2.4?"}])
+          + {kind: "question", msg: "Which branch should this PR target: main or release/2.4?"}]) + {screen: $orders}
       ]},
       {window_id: "window:checkout", label: "checkout", blocks: [
         pane("frontend"; $api; "claude"; [root("working"; "claude-code"; 3) + {msg: "Refactoring the checkout form"},
           child("task1"; "working"; "claude-code"; "Write form validation tests"; 2),
-          child("task2"; "working"; "claude-code"; "Update the Storybook stories"; 2)]),
+          child("task2"; "working"; "claude-code"; "Update the Storybook stories"; 2)]) + {screen: $frontend},
         pane("tests"; $api; "codex"; [root("error"; "codex"; 9) + {msg: "3 tests fail in checkout.spec.ts after the cart refactor"}])
       ]},
       {window_id: "window:docs", label: "docs", blocks: [
@@ -122,7 +122,9 @@ def child($id; $state; $app; $title; $m): {id: $id, state: $state, app: $app, ti
   }
 }
 EOF
-jq -n --arg home "$HOME" --arg api "$HOME/code/acme-api" --arg store "$HOME/code/storefront" --arg reviewer "$HOME/src/rex-reviewer" \
+# What two of its agents' panes show, for the phone's pane view.
+jq -n --rawfile frontend "$here/screens/frontend.txt" --rawfile orders "$here/screens/orders.txt" \
+  --arg home "$HOME" --arg api "$HOME/code/acme-api" --arg store "$HOME/code/storefront" --arg reviewer "$HOME/src/rex-reviewer" \
   -f "$demo/world.jq" >"$demo/world.json"
 
 # rex-reviewer's ledger: which panes review which PR.

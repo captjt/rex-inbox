@@ -126,6 +126,13 @@ from the Home Screen, and tap Turn On. Only your own Tailscale user gets
 in. Web notifications on iOS have no buttons, so tap one, then approve in
 the app.
 
+The inbox lists every agent that's running, under Running, until it needs
+you. Tap an agent for its pane as a conversation: what you asked in
+bubbles, what it said, each tool it ran as a row that opens to its output,
+and Approve and Deny at the top when it waits on you. It follows the pane
+while it's open; Screen shows the terminal as it is. A session's pencil
+renames it, on the phone and in the Mac app.
+
 ## Commands
 
 | | |

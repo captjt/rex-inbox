@@ -19,6 +19,8 @@
   --gray: #8e8e93;
   --term-bg: #16161a;
   --term-text: #e6e6ea;
+  --seg-on: #ffffff;
+  --bubble-them: #e9e9eb;
   --glass: rgba(255, 255, 255, 0.62);
   --glass-strong: rgba(248, 248, 251, 0.9);
   --glass-edge: rgba(255, 255, 255, 0.7);
@@ -47,6 +49,8 @@
     --blue: #0a84ff;
     --gray: #98989d;
     --term-bg: #0e0e10;
+    --seg-on: #636366;
+    --bubble-them: #26252a;
     --glass: rgba(37, 37, 40, 0.58);
     --glass-strong: rgba(38, 38, 42, 0.9);
     --glass-edge: rgba(255, 255, 255, 0.14);
@@ -143,6 +147,8 @@ h2 .n { font-variant-numeric: tabular-nums; }
 h2 button { all: unset; display: flex; align-items: center; gap: 6px; cursor: pointer; }
 h2 button svg { transition: transform 0.2s; }
 h2 button.open svg { transform: rotate(90deg); }
+h2 button.rename { margin-left: auto; padding: 6px; margin-block: -6px; color: var(--blue); }
+h2 button.rename svg { font-size: 16px; }
 
 .swipe { position: relative; margin-bottom: 10px; border-radius: 22px; overflow: hidden; transition: height 0.28s ease, margin 0.28s ease, opacity 0.2s; }
 .swipe.leaving { opacity: 0; margin-bottom: 0; }
@@ -342,6 +348,76 @@ body.kb #sheet { padding-bottom: 0; }
 }
 .term.wrap { white-space: pre-wrap; word-break: break-all; }
 .term.loading { color: var(--gray); }
+
+/* ---- an agent's pane: a conversation, like Messages ---- */
+
+#sheet.tall { height: calc(100dvh - var(--kb) - var(--safe-top) - 10px); }
+.pane-top { flex-shrink: 0; padding: 0 16px 10px; display: flex; flex-direction: column; gap: 10px; }
+.pane-status {
+  display: flex; align-items: center; gap: 10px; min-height: 44px;
+  background: var(--card); border-radius: 14px; padding: 9px 14px; font-size: 15px;
+}
+.pane-status .pane-what { flex: 1; min-width: 0; color: var(--muted); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.pane-status .pane-what b { color: var(--tint); font-weight: 600; }
+.pane-status .kids, .pane-status .age { color: var(--muted); font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pdot { width: 9px; height: 9px; border-radius: 50%; background: var(--tint); flex-shrink: 0; }
+.pdot.live { animation: pulse 1.4s ease-in-out infinite; }
+.pane-ask {
+  --tint: var(--orange);
+  background: color-mix(in srgb, var(--orange) 12%, var(--card)); border-radius: 16px; padding: 12px 14px;
+}
+.pane-ask .ask-head { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+.pane-ask .ask-head svg { color: var(--orange); font-size: 18px; }
+.pane-ask .ask-head b { flex: 1; }
+.pane-ask .ask-head .age { color: var(--muted); font-size: 13px; }
+.pane-ask .what { margin-top: 8px; max-height: 22dvh; overflow-y: auto; }
+.pane-ask .actions { margin-top: 10px; }
+
+/* iOS's segmented control */
+.seg { display: flex; background: var(--fill); border-radius: 9px; padding: 2px; }
+.seg button {
+  flex: 1; border: 0; background: none; border-radius: 7px; padding: 6px 0;
+  font-size: 13px; font-weight: 600; color: var(--text); transition: background-color 0.2s, box-shadow 0.2s;
+}
+.seg button.on { background: var(--seg-on); box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.04); }
+
+/* Short conversations sit at the bottom, by the composer, as in Messages. */
+.pane-body { padding-bottom: 8px; display: flex; flex-direction: column; }
+.convo { display: flex; flex-direction: column; gap: 6px; }
+.pane-body > .convo { margin-top: auto; }
+.convo-empty { display: grid; place-items: center; min-height: 30dvh; color: var(--muted); font-size: 15px; text-align: center; }
+.msg { display: flex; flex-direction: column; margin-top: 4px; }
+.msg.you { align-self: flex-end; align-items: flex-end; max-width: 84%; }
+.msg.agent { align-self: stretch; }
+.bubble { border-radius: 20px; padding: 8px 14px; font-size: 16px; line-height: 1.38; word-break: break-word; }
+.msg.you .bubble { background: var(--blue); color: #fff; white-space: pre-wrap; border-bottom-right-radius: 6px; }
+.msg.agent .bubble { background: var(--bubble-them); border-bottom-left-radius: 6px; padding: 10px 14px; }
+.msg.agent .bubble > :last-child { margin-bottom: 0; }
+.msg.agent .bubble code { background: color-mix(in srgb, var(--text) 8%, transparent); }
+.aside { color: var(--muted); font-size: 13px; margin: 4px 8px 0; text-align: right; }
+
+.tool { font-size: 14px; color: var(--muted); }
+.tool-row {
+  display: flex; align-items: center; gap: 7px; min-height: 30px; padding: 2px 4px; list-style: none; cursor: default;
+}
+.tool-row::-webkit-details-marker { display: none; }
+details.tool .tool-row { cursor: pointer; }
+.tool-row b { color: var(--text); font-weight: 600; white-space: nowrap; }
+.tool-row code { font: 13px ui-monospace, "SF Mono", Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+.tool-row .tw { font-size: 12px; stroke-width: 2.6; color: var(--faint); transition: transform 0.2s; }
+div.tool .tw { visibility: hidden; }
+details.tool[open] .tw { transform: rotate(90deg); }
+.tool pre {
+  margin: 2px 0 6px 23px; padding: 9px 11px; border-radius: 12px; background: var(--fill); color: var(--text);
+  font: 12px/1.45 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre-wrap; word-break: break-word;
+  max-height: 34dvh; overflow-y: auto;
+}
+.stamp { align-self: center; text-align: center; color: var(--muted); font-size: 12px; font-weight: 500; margin: 10px 24px 2px; }
+.noteblock {
+  margin: 4px 0; padding: 10px 12px; border-radius: 12px; background: var(--fill); color: var(--muted);
+  font: 11.5px/1.4 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre; overflow-x: auto;
+}
+.modeline { text-align: center; color: var(--faint); font-size: 12px; margin: 14px 0 2px; }
 
 .md { font-size: 16px; line-height: 1.45; word-break: break-word; }
 .md p { margin: 0 0 10px; }

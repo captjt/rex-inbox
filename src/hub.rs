@@ -30,6 +30,10 @@ pub enum HubEvent {
     MessageUpdated { message: Message },
     HostConnected { host: String },
     HostDisconnected { host: String, error: Option<String> },
+    SessionRenamed { host: String, session_id: String, label: String },
+    /// An agent pane appeared, went away, or changed state: lists of
+    /// agents should fetch them again.
+    AgentsChanged { host: String },
 }
 
 pub struct Core {
@@ -49,6 +53,9 @@ pub struct Core {
     pub reviewer: crate::reviewer::Ledger,
     /// Wakes the fleet to read `rex hosts` again now.
     pub fleet: Arc<tokio::sync::Notify>,
+    /// Each host's agents and states as last told, so `AgentsChanged` goes
+    /// out only when that changes.
+    pub agents_seen: BTreeMap<String, String>,
 }
 
 #[derive(Clone)]
@@ -70,12 +77,30 @@ impl Core {
         self.rexes.get(host).cloned().ok_or_else(|| anyhow!("unknown host {host}"))
     }
 
+    /// Tell the apps about sessions with a new label, so lists show it.
+    pub fn renamed<I: IntoIterator<Item = String>>(&mut self, host: &str, sessions: I) {
+        for sid in sessions {
+            let Some(label) = self.hosts.get(host).and_then(|m| m.session_label(&sid)).map(str::to_string) else { continue };
+            self.emit(HubEvent::SessionRenamed { host: host.to_string(), session_id: sid, label });
+        }
+    }
+
     /// Bring the alerts of some panes in line with their records.
     pub fn reconcile<I: IntoIterator<Item = String>>(&mut self, host: &str, blocks: I) {
         for block in blocks {
             if let Err(e) = self.reconcile_block(host, &block) {
                 say!("alerts for {host} {block}: {e:#}");
             }
+        }
+        self.agents_moved(host);
+    }
+
+    /// Say `AgentsChanged` when a host's agents, or what they're doing, changed.
+    fn agents_moved(&mut self, host: &str) {
+        let now = self.hosts.get(host).map(agents_fingerprint).unwrap_or_default();
+        if self.agents_seen.get(host) != Some(&now) {
+            self.agents_seen.insert(host.to_string(), now);
+            self.emit(HubEvent::AgentsChanged { host: host.to_string() });
         }
     }
 
@@ -326,19 +351,40 @@ struct HostSnapshot {
     statuses: Vec<PaneStatus>,
 }
 
-fn apply_snapshot(m: &mut HostMirror, snap: HostSnapshot) -> BTreeSet<String> {
+/// A host's agent panes and what each is doing: what the Agents list and
+/// the inbox's Running show, less the text.
+fn agents_fingerprint(m: &HostMirror) -> String {
+    let mut out = String::new();
+    for p in m.panes.values().filter(|p| p.is_agent()) {
+        let head = p.headline();
+        let kids = p.records.values().filter(|r| !r.is_root() && r.state == "working").count();
+        out.push_str(&format!(
+            "{} {} {} {kids};",
+            p.block_id,
+            head.map_or("starting", |r| r.state.as_str()),
+            head.and_then(|r| r.kind.as_deref()).unwrap_or("")
+        ));
+    }
+    out
+}
+
+/// Apply a snapshot: the panes that changed, and the sessions renamed.
+fn apply_snapshot(m: &mut HostMirror, snap: HostSnapshot) -> (BTreeSet<String>, BTreeSet<String>) {
     let mut changed = BTreeSet::new();
+    let mut renamed = BTreeSet::new();
     if let Some(live) = &snap.all_sessions {
         changed.extend(m.retain_sessions(live).panes);
     }
     for s in snap.sessions {
-        changed.extend(m.apply_session(s).panes);
+        let c = m.apply_session(s);
+        changed.extend(c.panes);
+        renamed.extend(c.renamed);
     }
     for (sid, bid, records, process, pwd) in snap.statuses {
         m.apply_pane_status(&sid, &bid, records, process.as_ref(), pwd.as_ref());
         changed.insert(bid);
     }
-    changed
+    (changed, renamed)
 }
 
 /// Fetch sessions (all, or `only`), their layouts, and the status of their
@@ -467,8 +513,9 @@ fn retain_sessions(shared: &Shared, host: &str, ids: &BTreeSet<String>) {
 fn apply_partial(shared: &Shared, host: &str, snap: HostSnapshot) {
     let mut core = shared.lock();
     if let Some(m) = core.hosts.get_mut(host) {
-        let changed = apply_snapshot(m, snap);
+        let (changed, renamed) = apply_snapshot(m, snap);
         core.reconcile(host, changed);
+        core.renamed(host, renamed);
     }
 }
 
@@ -510,6 +557,7 @@ pub async fn run(socket: PathBuf, db: PathBuf) -> Result<()> {
         web_url: None,
         reviewer: crate::reviewer::Ledger::new(crate::reviewer::state_dir()),
         fleet: Arc::new(tokio::sync::Notify::new()),
+        agents_seen: BTreeMap::new(),
     })));
     let listener = bind(&socket).await?;
     say!("hub listening on {}", socket.display());
@@ -619,6 +667,37 @@ mod tests {
 
     fn rec(state: &str) -> Record {
         Record { state: state.into(), app: Some("claude-code".into()), ..Default::default() }
+    }
+
+    #[test]
+    fn agents_change_with_their_state_not_their_words() {
+        let mut m = HostMirror::new("local");
+        let empty = agents_fingerprint(&m);
+        m.apply_pane_status("s1", "b1", vec![rec("working")], None, None);
+        let working = agents_fingerprint(&m);
+        assert_ne!(empty, working, "a new agent");
+        let mut r = rec("working");
+        r.msg = Some("Reading files".into());
+        m.apply_pane_status("s1", "b1", vec![r], None, None);
+        assert_eq!(agents_fingerprint(&m), working, "what it says isn't news");
+        m.apply_pane_status("s1", "b1", vec![rec("idle")], None, None);
+        assert_ne!(agents_fingerprint(&m), working, "it stopped");
+    }
+
+    #[test]
+    fn a_renamed_session_relabels_its_panes_items() {
+        let snap = |label: &str| crate::mirror::SessionSnapshot {
+            session: crate::mirror::Session { session_id: "s1".into(), label: label.into(), active_window_id: None, windows: vec![] },
+            blocks: vec![("b1".into(), "shell".into(), crate::mirror::TERMINAL.into(), None)],
+        };
+        let mut m = HostMirror::new("local");
+        assert!(m.apply_session(snap("calm-reef")).renamed.is_empty(), "a session seen first isn't renamed");
+        m.apply_pane_status("s1", "b1", vec![rec("done")], None, None);
+        assert!(m.apply_session(snap("calm-reef")).panes.is_empty(), "nothing changed");
+        let c = m.apply_session(snap("guardian"));
+        assert!(c.renamed.contains("s1"));
+        assert!(c.panes.contains("b1"), "its items show the session's name");
+        assert_eq!(wanted_alerts(&m, &m.panes["b1"], None)[0].session_label.as_deref(), Some("guardian"));
     }
 
     #[test]

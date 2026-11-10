@@ -34,6 +34,12 @@ final class Store {
     var needsYou: [Alert] { alerts.filter { $0.category == "needs_you" } }
     var failed: [Alert] { alerts.filter { $0.category == "failed" } }
     var finished: [Alert] { alerts.filter { $0.category == "finished" } }
+    /// Agents with nothing in the inbox yet: working, idle, or starting. One
+    /// that needs you, failed, or finished shows as its item instead.
+    var running: [Pane] {
+        let open = Set(alerts.map { $0.host + "|" + $0.blockId })
+        return panes.filter { !open.contains($0.id) }
+    }
     var unread: [Message] { messages.filter { $0.status == "unread" } }
     /// What the menu bar counts: things waiting on you.
     var waiting: Int { needsYou.count + unread.count }
@@ -183,6 +189,17 @@ final class Store {
         await act(id) {
             try await Hub.call("open", ["id": id])
             Self.activateRex()
+        }
+    }
+
+    /// Rename a pane's Rex session: nil when it's renamed, else why not.
+    func renameSession(of pane: Pane, to label: String) async -> String? {
+        do {
+            try await Hub.call("sessions.rename", ["host": pane.host, "session_id": pane.sessionId, "label": label])
+            await refresh()
+            return nil
+        } catch {
+            return error.localizedDescription
         }
     }
 

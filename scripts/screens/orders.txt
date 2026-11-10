@@ -1,0 +1,17 @@
+› Open a PR for the orders pagination change once the tests pass.
+
+• Ran pnpm test --filter orders
+  └ 38 passed, 0 failed (4.1s)
+
+• Explored
+  └ Read routes/orders.ts, CHANGELOG.md
+    List .github/workflows
+
+• The tests pass. Before I open the PR: main has moved on since
+  release/2.4 was cut, and this change touches the public API.
+
+  Which branch should this PR target: main or release/2.4?
+
+› Ask Codex to do anything
+
+  100% context left · ? for shortcuts

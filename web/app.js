@@ -21,6 +21,7 @@ const state = {
   // The new-agent sheet's form; kept between openings, less the prompt once sent.
   draft: { host: "local", program: "claude", cwd: "", prompt: "", name: "", session: "" },
   hosts: [],
+  paneView: "chat", // how a pane's sheet shows it: chat | screen
   hold: 0, // > 0 while a swipe or an animation runs: refreshes wait
   pending: false,
 };
@@ -54,6 +55,7 @@ const PATHS = {
   refresh: '<path d="M20.25 12a8.25 8.25 0 1 1-2.4-5.8"/><path d="M20.25 3.75v5h-5"/>',
   wrap: '<path d="M3.5 6h17M3.5 12h14a3 3 0 0 1 0 6H12"/><path d="M14 15.5l-2.5 2.5 2.5 2.5M3.5 18h5"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  pencil: '<path d="M15.75 4.5l3.75 3.75L8.25 19.5l-4.75 1 1-4.75z"/><path d="M13.25 7l3.75 3.75"/>',
   folder: '<path d="M2.75 7.25a2 2 0 0 1 2-2h4.6l2 2.5h7.9a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2H4.75a2 2 0 0 1-2-2z"/>',
   up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
   wifi: '<path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.75 16a5 5 0 0 1 6.5 0"/><path d="M12 19.5h.01"/>',
@@ -353,12 +355,12 @@ function paintFilters(c) {
 
 function inboxView(c) {
   if (!state.loaded) return state.conn === "off" ? offline() : "";
+  const running = runningPanes();
   if (!state.alerts.length && !state.messages.length) {
-    const working = state.panes.filter((p) => p.state === "working").length;
-    const detail = working
-      ? `${plural(working, "agent")} working. You'll hear when one needs you.`
+    const detail = running.length
+      ? "Your agents are below. You'll hear when one needs you."
       : "Blocked, failed and finished agents show up here, with messages to you.";
-    return empty("done", "t-green", "Nothing needs you", detail);
+    return empty("done", "t-green", "Nothing needs you", detail) + runningSection(running);
   }
   const list = (items, card) => items.map(card).join("");
   switch (state.filter) {
@@ -375,11 +377,24 @@ function inboxView(c) {
   if (c.needs.length) html += section("Needs you", c.needs.length) + list(c.needs, alertCard);
   if (c.messages.length) html += section("Messages", c.messages.length) + list(c.messages, messageCard);
   if (c.failed.length) html += section("Failed", c.failed.length) + list(c.failed, alertCard);
+  html += runningSection(running);
   if (c.finished.length) {
     html += `<h2><button data-act="toggle-finished" class="${state.showFinished ? "open" : ""}">Finished <span class="n">${c.finished.length}</span>${ic("chevron")}</button></h2>`;
     if (state.showFinished) html += list(c.finished, alertCard);
   }
   return html;
+}
+
+// Agents with nothing in the inbox yet: working, idle, or starting. One that
+// needs you, failed or finished shows as its item instead.
+function runningPanes() {
+  const open = new Set(state.alerts.map((a) => `${a.host}|${a.block_id}`));
+  return state.panes.filter((p) => !open.has(`${p.host}|${p.block_id}`));
+}
+
+function runningSection(panes) {
+  if (!panes.length) return "";
+  return section("Running", panes.length) + `<div class="group">${panes.map((p) => agentRow(p, true)).join("")}</div>`;
 }
 
 const section = (title, n) => `<h2>${esc(title)} <span class="n">${n}</span></h2>`;
@@ -503,17 +518,24 @@ function agentsView() {
   }
   // This Mac's sessions first, then other hosts'.
   const order = Object.keys(groups).sort((a, b) => (local[a] === local[b] ? a.localeCompare(b) : local[a] ? -1 : 1));
-  return start + order.map((s) => section(s, groups[s].length) + `<div class="group">${groups[s].map(agentRow).join("")}</div>`).join("");
+  return start + order.map((s) => sessionHead(s, groups[s]) + `<div class="group">${groups[s].map((p) => agentRow(p)).join("")}</div>`).join("");
 }
 
-function agentRow(p) {
+// A session's header in the Agents tab, with a pencil to rename it.
+function sessionHead(title, panes) {
+  const p = panes[0];
+  return `<h2>${esc(title)} <span class="n">${panes.length}</span><button class="rename" data-act="rename" data-key="${esc(paneKey(p))}" aria-label="Rename ${esc(paneSession(p))}">${ic("pencil")}</button></h2>`;
+}
+
+// In the Agents tab a row sits under its session; elsewhere it names it.
+function agentRow(p, full = false) {
   const activity = p.title || p.msg;
   const kids = p.working_children ? ` · +${plural(p.working_children, "subagent")}` : "";
   const label = p.kind && p.state === "blocked" ? p.kind : p.state || "unknown";
   return `<button class="arow" data-act="pane" data-key="${esc(paneKey(p))}">
     <div class="badge-icon ${tint(p.state)}">${ic("agents")}</div>
     <div class="main">
-      <div class="name">${esc(paneName(p))}<small>${esc(appName(p.app))}${kids}</small></div>
+      <div class="name">${esc(full ? place(p) : paneName(p))}<small>${esc(appName(p.app))}${kids}</small></div>
       <div class="sub">${esc(activity || tilde(p.cwd))}</div>
     </div>
     <div class="side"><span class="state ${tint(p.state)}">${esc(label)}</span><span class="age">${age(p.since)}</span></div>
@@ -553,7 +575,9 @@ function lock(on) {
 }
 
 function openSheet(spec) {
+  clearTimeout(state.sheet?.timer);
   state.sheet = spec;
+  sheet.classList.toggle("tall", spec.type === "pane");
   sheet.style.removeProperty("--drag");
   sheet.innerHTML = sheetHtml(spec);
   markClamped(sheet);
@@ -561,11 +585,12 @@ function openSheet(spec) {
   $("scrim").classList.add("show");
   requestAnimationFrame(() => sheet.classList.add("show"));
   sheetLoad(spec);
-  if (spec.focus) setTimeout(() => sheet.querySelector("textarea")?.focus(), 380);
+  if (spec.focus) setTimeout(() => sheet.querySelector(spec.focus === "input" ? "input" : "textarea")?.focus(), 380);
 }
 
 function closeSheet() {
   if (!state.sheet) return;
+  clearTimeout(state.sheet.timer);
   document.activeElement?.blur?.();
   state.sheet = null;
   sheet.classList.remove("show");
@@ -619,14 +644,21 @@ function sheetHtml(s) {
   }
   if (s.type === "pane") {
     const p = findPane(s.key) || s.pane;
-    const activity = p.title || p.msg;
-    return `${sheetHead("agents", tint(p.state), paneName(p), paneSub(p))}
-      <div class="sheet-body">
-        ${activity ? `<div class="prose" style="margin-top:0">${esc(activity)}</div>` : ""}
-        <div class="meta" style="margin-top:6px">${esc(paneSession(p))} · ${esc(tilde(p.cwd))}</div>
-        ${termBlock()}
-      </div>
-      <div class="sheet-foot" id="sheet-foot">${composer(`p${s.key}`, `Message ${paneName(p)}…`, "pane-send", s.key)}<div class="hint">It goes in when the agent is idle.</div></div>`;
+    return `${sheetHead("agents", tint(p.state), paneName(p), `${appName(p.app)} · ${place(p)}`)}
+      <div class="pane-top" id="pane-top">${paneTop(s, p)}</div>
+      <div class="sheet-body pane-body" id="pane-body">${paneBody(s)}</div>
+      <div class="sheet-foot" id="sheet-foot">${paneFoot(s, p)}</div>`;
+  }
+  if (s.type === "rename") {
+    const p = s.pane;
+    const where = isLocal(p) ? "On this Mac" : `On ${p.host}`;
+    return `${sheetHead("pencil", "t-blue", "Rename session", `${where} · ${plural(s.count, "agent")}`)}
+      <form class="sheet-body" id="rename-form">
+        <div class="label" style="margin-top:0">Name</div>
+        <input class="field" id="rename-input" value="${esc(p.session_label || "")}" placeholder="${esc(paneSession(p))}" maxlength="128" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done">
+        <div class="field-note">Messages to its agents use the new name, as ${esc("name/pane")}.</div>
+      </form>
+      <div class="sheet-foot" id="sheet-foot">${renameFoot(s)}</div>`;
   }
   if (s.type === "new") {
     return `${sheetHead("plus", "t-blue", "New Agent", "Claude Code or Codex, on any Rex host")}
@@ -649,6 +681,47 @@ function sheetHtml(s) {
   }
   return "";
 }
+
+// ---- the rename sheet ----
+
+function renameFoot(s) {
+  return `${s.error ? `<div class="field-note bad">${esc(s.error)}</div>` : ""}<div class="actions"><button class="btn wide primary" data-act="rename-save" ${s.busy ? "disabled" : ""}>${s.busy ? '<span class="spin"></span>' : ic("check")}Rename</button></div>`;
+}
+
+async function renameSession() {
+  const s = state.sheet;
+  if (!s || s.type !== "rename" || s.busy) return;
+  const label = ($("rename-input")?.value || "").trim();
+  const paint = () => {
+    const foot = $("sheet-foot");
+    if (state.sheet === s && foot) foot.innerHTML = renameFoot(s);
+  };
+  if (!label) {
+    s.error = "A name is required.";
+    return paint();
+  }
+  if (label === s.pane.session_label) return closeSheet();
+  s.busy = true;
+  s.error = null;
+  paint();
+  try {
+    await call("sessions.rename", { host: s.pane.host, session_id: s.pane.session_id, label });
+    haptic();
+    toast(`Renamed to ${label}`);
+    closeSheet();
+    refresh();
+  } catch (e) {
+    s.busy = false;
+    s.error = e.message;
+    paint();
+  }
+}
+
+document.addEventListener("submit", (e) => {
+  if (e.target.id !== "rename-form") return;
+  e.preventDefault();
+  renameSession();
+});
 
 // ---- the new-agent sheet ----
 
@@ -766,11 +839,6 @@ async function startAgent() {
   }
 }
 
-function paneSub(p) {
-  const label = p.kind && p.state === "blocked" ? `${p.state} · ${p.kind}` : p.state || "unknown";
-  return [appName(p.app), label, age(p.since)].filter(Boolean).join(" · ");
-}
-
 function termBlock() {
   return `<div class="label">Pane<span class="grow"></span><button data-act="wrap">${ic("wrap")}Wrap</button><button data-act="screen-refresh">${ic("refresh")}Refresh</button></div>
     <pre class="term loading" id="term">Loading…</pre>`;
@@ -809,8 +877,12 @@ function refreshSheet() {
     if (foot) foot.innerHTML = itemFoot(s);
   } else if (s.type === "pane") {
     const p = findPane(s.key);
-    const sub = sheet.querySelector(".sheet-head .titles span");
-    if (p && sub) sub.textContent = paneSub(p);
+    const top = $("pane-top");
+    if (top) top.innerHTML = paneTop(s, p || s.pane);
+    if (!p) {
+      const foot = $("sheet-foot");
+      if (foot) foot.innerHTML = paneFoot(s, null);
+    }
   } else if (s.type === "menu" && !findAlert(s.id)) {
     closeSheet();
   } else if (s.type === "message" && !findMessage(s.id) && !state.busy.has(s.id)) {
@@ -840,9 +912,7 @@ async function sheetLoad(s, quiet = false) {
       const { text } = await call("screen", { id: s.id, lines: 80 });
       showTerm(s, text, quiet);
     } else if (s.type === "pane") {
-      const p = findPane(s.key) || s.pane;
-      const { text } = await call("panes.screen", { host: p.host, block_id: p.block_id, lines: 80 });
-      showTerm(s, text, quiet);
+      return followPane(s, quiet);
     }
   } catch (e) {
     if (state.sheet !== s) return;
@@ -852,6 +922,185 @@ async function sheetLoad(s, quiet = false) {
       el.textContent = e.message;
     }
   }
+}
+
+// ---- an agent's pane: its screen, read as a conversation ----
+
+// Claude Code and Codex mark what they draw: `❯`/`›` starts what you typed,
+// `⏺`/`•` what the agent said or ran, `⎿`/`└` a tool's output, and a
+// spinner glyph a turn's timing. The box you type in, between Claude
+// Code's last two rules, and the mode line under it are left out.
+const TOOL = /^(Ran|Explored|Edited|Read|Searched|Updated|Called|Added|Deleted|Wrote|Listed|Waited)\b|^[A-Z][\w .:-]*\(.*\)?$/;
+
+function transcript(text) {
+  let lines = String(text || "").split("\n").map((l) => l.replace(/\s+$/, ""));
+  while (lines.length && !lines[lines.length - 1]) lines.pop();
+  const rule = (l) => /^\s*─{8,}\s*$/.test(l);
+  const rules = lines.flatMap((l, i) => (rule(l) ? [i] : []));
+  let foot = [];
+  if (rules.length >= 2 && rules[rules.length - 1] >= lines.length - 8) {
+    const [a, b] = rules.slice(-2);
+    foot = lines.slice(b + 1).filter((l) => l.trim());
+    lines = lines.slice(0, a);
+  } else {
+    // Codex: its composer (`›`) sits over a line with the context left.
+    const f = lines.findLastIndex((l) => /context left|for shortcuts/.test(l));
+    if (f >= 0 && f >= lines.length - 4) {
+      foot = lines.slice(f).filter((l) => l.trim());
+      const k = lines.slice(0, f).findLastIndex((l) => /^›/.test(l));
+      lines = lines.slice(0, k >= f - 4 && k >= 0 ? k : f);
+    }
+  }
+  const blocks = [];
+  let cur = null;
+  const start = (type, first) => {
+    cur = { type, text: [first], out: [], inOut: false };
+    blocks.push(cur);
+  };
+  for (const l of lines) {
+    let m;
+    if (rule(l)) cur = null;
+    else if ((m = /^(?:❯|›|>) (.*)$/.exec(l))) start("you", m[1]);
+    else if ((m = /^• (Working|Thinking)\b(.*)$/.exec(l))) start("status", m[1] + m[2]);
+    else if ((m = /^(?:⏺|•) ?(.*)$/.exec(l))) start("agent", m[1]);
+    else if ((m = /^[✻✶✳✢✽·] (.+)$/.exec(l))) start("status", m[1]);
+    else if ((m = /^\s+(?:⎿|└)\s*(.*)$/.exec(l)) && cur) {
+      cur.out.push(m[1]);
+      cur.inOut = true;
+    } else if (!l.trim()) {
+      // A tool's output can have blank lines; what's indented past it goes on.
+      if (cur && cur.inOut) cur.out.push("");
+      else if (cur && cur.type !== "note") cur.text.push("");
+    } else if (cur && /^\s/.test(l)) {
+      const deep = /^\s{4}/.test(l);
+      if (cur.inOut && !deep) cur.inOut = false;
+      // Claude Code folds a run of reads and searches into one line.
+      if (!cur.inOut && /\(ctrl\+o to expand\)$/.test(l)) start("tool", l.trim());
+      else if (cur.inOut) cur.out.push(l);
+      else cur.text.push(l.replace(/^\s{1,2}/, ""));
+    } else if (cur && cur.type === "note") cur.text.push(l);
+    else start("note", l);
+  }
+  for (const b of blocks) {
+    while (b.text.length && !b.text[b.text.length - 1].trim()) b.text.pop();
+    while (b.out.length && !b.out[b.out.length - 1].trim()) b.out.pop();
+    // Output past its first line keeps its own indents, less the margin.
+    const rest = b.out.slice(1).filter((l) => l.trim());
+    const cut = rest.length ? Math.min(...rest.map((l) => /^\s*/.exec(l)[0].length)) : 0;
+    b.out = b.out.map((l, i) => (i ? l.slice(cut) : l));
+    if (b.type === "agent" && (b.out.length || TOOL.test(b.text[0]))) b.type = "tool";
+  }
+  return { blocks: blocks.filter((b) => b.text.join("").trim() || b.out.length), foot };
+}
+
+const unhint = (s) => s.replace(/\s*\(ctrl\+o to (expand|see all)\)/g, "");
+
+function convoHtml(t) {
+  if (!t.blocks.length) return `<div class="convo-empty">Nothing on its screen yet.</div>`;
+  const html = t.blocks.map((b) => {
+    const text = b.text.join("\n").trim();
+    switch (b.type) {
+      case "you":
+        return `<div class="msg you"><div class="bubble">${esc(text)}</div>${b.out.length ? `<div class="aside">${esc(b.out.join(" ").trim())}</div>` : ""}</div>`;
+      case "agent":
+        return `<div class="msg agent"><div class="bubble md">${md(text)}</div></div>`;
+      case "tool": {
+        const title = unhint(b.text.join(" ").replace(/\s+/g, " ").trim());
+        const m = /^([A-Za-z][\w .:-]*?)\((.*?)\)?$/.exec(title);
+        const [name, args] = m ? [m[1], m[2]] : [title, ""];
+        const head = `${ic("chevron", "tw")}<b>${esc(name)}</b>${args ? `<code>${esc(args)}</code>` : ""}`;
+        if (!b.out.length) return `<div class="tool"><div class="tool-row">${head}</div></div>`;
+        return `<details class="tool"><summary class="tool-row">${head}</summary><pre>${esc(unhint(b.out.join("\n")))}</pre></details>`;
+      }
+      case "status":
+        return `<div class="stamp">${esc(text.replace(/\s*·\s*esc to interrupt/, ""))}</div>`;
+      default:
+        return `<pre class="noteblock">${esc(text)}</pre>`;
+    }
+  });
+  return `<div class="convo">${html.join("")}</div>`;
+}
+
+const paneAlert = (p) => p && state.alerts.find((a) => a.host === p.host && a.block_id === p.block_id && a.category === "needs_you");
+const STATE_WORD = { working: "Working", blocked: "Waiting on you", error: "Failed", done: "Finished", idle: "Idle", starting: "Starting" };
+
+function paneTop(s, p) {
+  const a = paneAlert(p);
+  let card;
+  if (!findPane(s.key)) {
+    card = `<div class="pane-status t-gray"><span class="pdot"></span><span class="pane-what">This pane has closed.</span></div>`;
+  } else if (a) {
+    const ask = decisions(a).length ? `<div class="actions">${decisionButtons(a, "small")}</div>` : "";
+    card = `<div class="pane-ask"><div class="ask-head">${ic(alertLook(a)[0])}<b>${esc(headline(a))}</b><span class="age">${age(a.created_at)}</span></div>${alertBody(a, false)}${ask}</div>`;
+  } else {
+    const activity = p.state === "working" ? p.title || p.msg : "";
+    const kids = p.working_children ? `<span class="kids">+${plural(p.working_children, "subagent")}</span>` : "";
+    card = `<div class="pane-status ${tint(p.state)}"><span class="pdot ${p.state === "working" ? "live" : ""}"></span>
+      <span class="pane-what"><b>${esc(STATE_WORD[p.state] || p.state || "Unknown")}</b>${activity ? ` · ${esc(activity)}` : ""}</span>${kids}<span class="age">${age(p.since)}</span></div>`;
+  }
+  const seg = (v, label) => `<button role="tab" class="${s.view === v ? "on" : ""}" aria-selected="${s.view === v}" data-act="pane-view" data-value="${v}">${label}</button>`;
+  return `${card}<div class="seg" role="tablist">${seg("chat", "Conversation")}${seg("screen", "Screen")}</div>`;
+}
+
+function paneBody(s) {
+  if (s.text == null) return `<div class="convo-empty">${s.error ? esc(s.error) : '<span class="spin"></span>'}</div>`;
+  if (s.view === "screen") {
+    return `<div class="label" style="margin-top:2px"><span class="grow"></span><button data-act="wrap">${ic("wrap")}${s.wrap ? "Don't wrap" : "Wrap"}</button></div>
+      <pre class="term ${s.wrap ? "wrap" : ""}" id="term">${esc(String(s.text).replace(/\s+$/, "") || "(empty)")}</pre>`;
+  }
+  const t = transcript(s.text);
+  const mode = t.foot.find((l) => /mode|shortcuts|context/.test(l));
+  return convoHtml(t) + (mode ? `<div class="modeline">${esc(mode.trim().replace(/\s*·\s*esc to interrupt/, ""))}</div>` : "");
+}
+
+function paneFoot(s, p) {
+  if (!p) return `<div class="gone">${ic("done")}The pane is gone.</div>`;
+  const verb = paneAlert(p)?.kind === "question" ? "Answer" : "Message";
+  return `${composer(`p${s.key}`, `${verb} ${paneName(p)}…`, "pane-send", s.key)}<div class="hint">It goes in when the agent is idle.</div>`;
+}
+
+// Paint the pane's body, keeping the reader where they were: at the end
+// (the newest) unless they scrolled up to read.
+function paintPane(s, toEnd) {
+  const body = $("pane-body");
+  if (!body || state.sheet !== s) return;
+  const atEnd = body.scrollTop + body.clientHeight >= body.scrollHeight - 24;
+  const y = body.scrollTop;
+  const open = [...body.querySelectorAll("details[open]")].map((d) => [...body.querySelectorAll("details")].indexOf(d));
+  body.innerHTML = paneBody(s);
+  const all = body.querySelectorAll("details");
+  for (const i of open) if (all[i]) all[i].open = true;
+  const term = $("term");
+  if (toEnd || atEnd) {
+    body.scrollTop = body.scrollHeight;
+    if (term) term.scrollTop = term.scrollHeight;
+  } else body.scrollTop = y;
+}
+
+// Read the pane's screen now, and again while the sheet stays open: often
+// while it works, now and then while it waits.
+async function followPane(s, quiet) {
+  clearTimeout(s.timer);
+  const p = findPane(s.key) || s.pane;
+  if (document.visibilityState === "visible" && findPane(s.key)) {
+    try {
+      const { text } = await call("panes.screen", { host: p.host, block_id: p.block_id, lines: 200 });
+      if (state.sheet !== s) return;
+      const changed = text !== s.text;
+      s.text = text;
+      s.error = null;
+      if (changed) paintPane(s, !quiet);
+    } catch (e) {
+      if (state.sheet !== s) return;
+      if (s.text == null) {
+        s.error = e.message;
+        paintPane(s, false);
+      }
+    }
+  }
+  if (state.sheet !== s) return;
+  const busy = ["working", "blocked", "starting"].includes(findPane(s.key)?.state);
+  s.timer = setTimeout(() => followPane(s, true), busy ? 2500 : 8000);
 }
 
 function showTerm(s, text, quiet) {
@@ -1135,7 +1384,8 @@ document.addEventListener("click", async (e) => {
   const id = Number(b.dataset.id);
   switch (b.dataset.act) {
     case "answer":
-      if (state.sheet) closeSheet();
+      // From a pane's sheet, stay and watch it go on.
+      if (state.sheet && state.sheet.type !== "pane") closeSheet();
       return answer(id, b.dataset.action);
     case "done":
       if (state.sheet && state.sheet.type !== "menu") closeSheet();
@@ -1157,8 +1407,27 @@ document.addEventListener("click", async (e) => {
       state.showFinished = !state.showFinished;
       return render();
     case "pane":
-      return openSheet({ type: "pane", key: b.dataset.key, pane: findPane(b.dataset.key) });
+      return openSheet({ type: "pane", key: b.dataset.key, pane: findPane(b.dataset.key), view: state.paneView, text: null });
+    case "rename": {
+      const p = findPane(b.dataset.key);
+      if (!p) return;
+      const count = state.panes.filter((x) => x.host === p.host && x.session_id === p.session_id).length;
+      return openSheet({ type: "rename", pane: p, count, focus: "input" });
+    }
+    case "rename-save":
+      return renameSession();
+    case "pane-view":
+      if (state.sheet?.type === "pane" && state.sheet.view !== b.dataset.value) {
+        state.sheet.view = state.paneView = b.dataset.value;
+        $("pane-top").innerHTML = paneTop(state.sheet, findPane(state.sheet.key) || state.sheet.pane);
+        paintPane(state.sheet, true);
+      }
+      return;
     case "wrap":
+      if (state.sheet?.type === "pane") {
+        state.sheet.wrap = !state.sheet.wrap;
+        return paintPane(state.sheet, false);
+      }
       return $("term")?.classList.toggle("wrap");
     case "screen-refresh":
       return state.sheet && sheetLoad(state.sheet, true);
