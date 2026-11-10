@@ -384,6 +384,12 @@ running in Rex:
 
 Thanks to @backnotprop for the idea, and for showing how well it works.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md): how to build and try a change
+without touching your own inbox, the checks to run, and how the code and
+its words are written.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
