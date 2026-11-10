@@ -1916,6 +1916,7 @@ dependencies = [
  "axum",
  "base64",
  "clap",
+ "libc",
  "reqwest",
  "rusqlite",
  "serde",

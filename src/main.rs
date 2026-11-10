@@ -300,6 +300,16 @@ fn list(v: &Value) -> Vec<Value> {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
+    // Rust ignores SIGPIPE, so printing into a closed pipe (rex-inbox ls |
+    // head) panics. A command should just stop, as other tools do. Not the
+    // hub, which a client hanging up on must never stop.
+    if !matches!(cli.cmd, Cmd::Hub) {
+        // SAFETY: this only sets how the process takes SIGPIPE, before any
+        // command runs; nothing in a command relies on it being ignored.
+        unsafe {
+            libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+        }
+    }
     if let Err(e) = run(cli).await {
         eprintln!("rex-inbox: {e:#}");
         std::process::exit(1);
