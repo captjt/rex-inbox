@@ -67,10 +67,7 @@ pub async fn answer(shared: &Shared, id: i64, approve: bool, seen: Option<&str>)
     let records = live_records(&rex, &alert.session_id, &alert.block_id).await?;
     let now = records.iter().find(|r| r.id == alert.record_id);
     let same = now.is_some_and(|r| {
-        r.state == "blocked"
-            && r.kind.as_deref() == Some("permission")
-            && r.msg == alert.msg
-            && r.updated_at == alert.record_updated_at
+        r.state == "blocked" && r.kind.as_deref() == Some("permission") && r.msg == alert.msg && r.updated_at == alert.record_updated_at
     });
     if !same {
         bail!("#{id}'s prompt has changed: it is now {}. Nothing was sent.", describe(now));
@@ -128,7 +125,9 @@ async fn answer_review(shared: &Shared, rex: &crate::rex::Rex, alert: &crate::st
             core.emit(crate::hub::HubEvent::AlertUpdated { alert: a });
         }
     }
-    Ok(json!({ "id": id, "answer": verb, "cleared": true, "now": if post { "posted" } else { "dismissed" }, "summary": summary, "result": result }))
+    Ok(
+        json!({ "id": id, "answer": verb, "cleared": true, "now": if post { "posted" } else { "dismissed" }, "summary": summary, "result": result }),
+    )
 }
 
 /// A review's text as it would post, from rex-reviewer's preview action.

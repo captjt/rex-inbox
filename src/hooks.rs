@@ -201,11 +201,7 @@ fn command() -> Result<String> {
     let exe = std::env::current_exe()?;
     let exe = exe.canonicalize().unwrap_or(exe);
     let exe = exe.to_string_lossy();
-    Ok(if exe.contains([' ', '\'', '"']) {
-        format!("'{}' hook stop", exe.replace('\'', r"'\''"))
-    } else {
-        format!("{exe} hook stop")
-    })
+    Ok(if exe.contains([' ', '\'', '"']) { format!("'{}' hook stop", exe.replace('\'', r"'\''")) } else { format!("{exe} hook stop") })
 }
 
 fn is_ours(hook: &Value) -> bool {
@@ -223,9 +219,11 @@ fn read(file: &Path) -> Result<Value> {
 
 /// Where our hook is in a config: (group, hook) indexes in `hooks.Stop`.
 fn find(config: &Value) -> Option<(usize, usize)> {
-    config["hooks"]["Stop"].as_array()?.iter().enumerate().find_map(|(g, group)| {
-        group["hooks"].as_array()?.iter().position(is_ours).map(|h| (g, h))
-    })
+    config["hooks"]["Stop"]
+        .as_array()?
+        .iter()
+        .enumerate()
+        .find_map(|(g, group)| group["hooks"].as_array()?.iter().position(is_ours).map(|h| (g, h)))
 }
 
 pub fn state(agent: &Agent) -> Result<State> {
@@ -294,10 +292,7 @@ pub fn remove(agent: &Agent) -> Result<bool> {
 fn write(file: &Path, config: &Value) -> Result<()> {
     let target = file.canonicalize().unwrap_or_else(|_| file.to_path_buf());
     let dir = target.parent().ok_or_else(|| anyhow!("{} has no folder", target.display()))?;
-    let tmp = dir.join(format!(
-        ".{}.rex-inbox.tmp",
-        target.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()
-    ));
+    let tmp = dir.join(format!(".{}.rex-inbox.tmp", target.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()));
     let mut text = serde_json::to_string_pretty(config)?;
     text.push('\n');
     std::fs::write(&tmp, text).with_context(|| format!("writing {}", tmp.display()))?;

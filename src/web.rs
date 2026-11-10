@@ -28,30 +28,9 @@ use crate::hub::Shared;
 /// no stopping the hub. It may start an agent, but only Claude Code or Codex
 /// (`agents.start` runs nothing else).
 const ALLOWED: &[&str] = &[
-    "status",
-    "inbox",
-    "panes.list",
-    "panes.screen",
-    "hosts.list",
-    "dirs.list",
-    "agents.start",
-    "show",
-    "screen",
-    "approve",
-    "deny",
-    "preview",
-    "done",
-    "alerts.snooze",
-    "alerts.reopen",
-    "messages.list",
-    "messages.read",
-    "messages.reply",
-    "messages.send",
-    "sessions.rename",
-    "push.key",
-    "push.subscribe",
-    "push.unsubscribe",
-    "push.test",
+    "status", "inbox", "panes.list", "panes.screen", "hosts.list", "dirs.list", "agents.start", "show", "screen", "approve", "deny",
+    "preview", "done", "alerts.snooze", "alerts.reopen", "messages.list", "messages.read", "messages.reply", "messages.send",
+    "sessions.rename", "push.key", "push.subscribe", "push.unsubscribe", "push.test",
 ];
 
 pub fn addr() -> Option<SocketAddr> {
@@ -94,7 +73,9 @@ async fn guard(State(shared): State<Shared>, req: Request, next: Next) -> Respon
         let owner = shared.lock().owner.clone();
         match (login, owner) {
             (Some(l), Some(o)) if l.eq_ignore_ascii_case(&o) => {}
-            (_, None) => return deny(StatusCode::SERVICE_UNAVAILABLE, "rex-inbox doesn't know its owner yet: is Tailscale running on the Mac?"),
+            (_, None) => {
+                return deny(StatusCode::SERVICE_UNAVAILABLE, "rex-inbox doesn't know its owner yet: is Tailscale running on the Mac?");
+            }
             _ => return deny(StatusCode::FORBIDDEN, "rex-inbox answers only the Mac's Tailscale user, through tailscale serve"),
         }
     }
@@ -114,9 +95,7 @@ fn host_ok(h: &HeaderMap, web_url: Option<&str>) -> bool {
     if matches!(name, "127.0.0.1" | "localhost" | "[::1]") {
         return true;
     }
-    web_url
-        .map(|u| u.trim_start_matches("https://").trim_end_matches('/'))
-        .is_some_and(|tn| name.eq_ignore_ascii_case(tn))
+    web_url.map(|u| u.trim_start_matches("https://").trim_end_matches('/')).is_some_and(|tn| name.eq_ignore_ascii_case(tn))
 }
 
 /// A write must carry our header (which forces a CORS preflight we never
@@ -150,9 +129,7 @@ async fn call(State(shared): State<Shared>, Json(req): Json<api::Request>) -> Js
 
 async fn events(State(shared): State<Shared>) -> impl IntoResponse {
     let rx = shared.lock().events.subscribe();
-    let stream = BroadcastStream::new(rx)
-        .filter_map(|r| r.ok())
-        .map(|ev| Event::default().json_data(ev));
+    let stream = BroadcastStream::new(rx).filter_map(|r| r.ok()).map(|ev| Event::default().json_data(ev));
     Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(20)))
 }
 
@@ -209,9 +186,9 @@ pub fn readiness(port: &str) -> Readiness {
 fn readiness_of(status: Option<&Value>, serve: Option<&Value>, port: &str) -> Readiness {
     let target = format!(":{port}");
     let proxies_here = |site: &Value| {
-        site["Handlers"].as_object().is_some_and(|hs| {
-            hs.values().any(|h| h["Proxy"].as_str().is_some_and(|p| p.trim_end_matches('/').ends_with(&target)))
-        })
+        site["Handlers"]
+            .as_object()
+            .is_some_and(|hs| hs.values().any(|h| h["Proxy"].as_str().is_some_and(|p| p.trim_end_matches('/').ends_with(&target))))
     };
     Readiness {
         magic_dns: status.and_then(|s| s["CurrentTailnet"]["MagicDNSEnabled"].as_bool()),
@@ -229,10 +206,7 @@ pub async fn owner_and_url() -> (Option<String>, Option<String>) {
         let uid = s["Self"]["UserID"].as_i64()?;
         s["User"][uid.to_string()]["LoginName"].as_str().map(str::to_string)
     });
-    let url = status
-        .as_ref()
-        .and_then(|s| s["Self"]["DNSName"].as_str())
-        .map(|d| format!("https://{}", d.trim_end_matches('.')));
+    let url = status.as_ref().and_then(|s| s["Self"]["DNSName"].as_str()).map(|d| format!("https://{}", d.trim_end_matches('.')));
     (owner, url)
 }
 

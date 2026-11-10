@@ -173,9 +173,11 @@ pub async fn dispatch(shared: &Shared, method: &str, params: &Value) -> Result<V
             let to = End { addr: addr.clone(), host: host.clone(), session: session.clone(), block: block.clone() };
             // The same answer twice in a moment is one tap too many (or one
             // on the Mac and one on the phone): the agent gets it once.
-            if let Some(dup) = core.store.thread(orig.thread_id)?.into_iter().rev().find(|m| {
-                m.reply_to == Some(id) && m.from_block == from.block && m.body.trim() == body.trim() && just_now(&m.created_at)
-            }) {
+            if let Some(dup) =
+                core.store.thread(orig.thread_id)?.into_iter().rev().find(|m| {
+                    m.reply_to == Some(id) && m.from_block == from.block && m.body.trim() == body.trim() && just_now(&m.created_at)
+                })
+            {
                 return Ok(serde_json::to_value(dup)?);
             }
             let subject = orig.subject.as_ref().map(|s| if s.starts_with("Re: ") { s.clone() } else { format!("Re: {s}") });
@@ -264,7 +266,9 @@ async fn wait(shared: &Shared, caller: &Caller, params: &Value) -> Result<Value>
             (Some(b), Some(h)) => core.store.messages_to_block(h, b, true)?,
             _ => core.store.messages_to_me(false)?.into_iter().filter(|m| m.status == "unread").collect(),
         };
-        let thread_of = |m: &Message| thread.is_none_or(|t| m.thread_id == t || core.store.message(t).ok().flatten().is_some_and(|x| x.thread_id == m.thread_id));
+        let thread_of = |m: &Message| {
+            thread.is_none_or(|t| m.thread_id == t || core.store.message(t).ok().flatten().is_some_and(|x| x.thread_id == m.thread_id))
+        };
         let pending = pending.into_iter().filter(|m| thread_of(m)).min_by_key(|m| m.id);
         (rx, who, pending)
     };
@@ -275,7 +279,9 @@ async fn wait(shared: &Shared, caller: &Caller, params: &Value) -> Result<Value>
             let next = async {
                 loop {
                     match rx.recv().await {
-                        Ok(HubEvent::MessageNew { message }) if is_for(&message, &who) && thread_id.is_none_or(|t| message.thread_id == t) => {
+                        Ok(HubEvent::MessageNew { message })
+                            if is_for(&message, &who) && thread_id.is_none_or(|t| message.thread_id == t) =>
+                        {
                             return Ok(message);
                         }
                         Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => continue,

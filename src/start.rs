@@ -59,10 +59,7 @@ fn find_session<'a>(m: &'a HostMirror, name: &str) -> Option<&'a str> {
 /// A terminal on the host to look at folders through, one in `prefer` first.
 fn probe(m: &HostMirror, prefer: Option<&str>) -> Option<(String, String)> {
     let terms = || m.panes.values().filter(|p| p.creator == TERMINAL);
-    terms()
-        .find(|p| Some(p.session_id.as_str()) == prefer)
-        .or_else(|| terms().next())
-        .map(|p| (p.session_id.clone(), p.block_id.clone()))
+    terms().find(|p| Some(p.session_id.as_str()) == prefer).or_else(|| terms().next()).map(|p| (p.session_id.clone(), p.block_id.clone()))
 }
 
 /// `~` and `~/x` against `home`.
@@ -159,12 +156,8 @@ pub async fn start(shared: &Shared, params: &Value) -> Result<Value> {
         let core = shared.lock();
         let (m, rex) = reachable(&core, &host)?;
         let session = find_session(m, session_name).map(str::to_string);
-        let taken: BTreeSet<String> = m
-            .panes
-            .values()
-            .filter(|p| Some(&p.session_id) == session.as_ref())
-            .map(|p| p.label.clone())
-            .collect();
+        let taken: BTreeSet<String> =
+            m.panes.values().filter(|p| Some(&p.session_id) == session.as_ref()).map(|p| p.label.clone()).collect();
         let name = match wanted_name {
             Some(n) if taken.contains(n) => bail!("{session_name} on {host} already has a pane called {n}"),
             Some(n) => n.to_string(),
@@ -201,10 +194,10 @@ pub async fn start(shared: &Shared, params: &Value) -> Result<Value> {
     settle(&rex, &created.session_id, &created.block_id, program, &host).await?;
 
     let address = if host == "local" { format!("{session_name}/{name}") } else { format!("{host}:{session_name}/{name}") };
-    shared.lock().store.log(
-        "agent_started",
-        &json!({ "host": host, "program": program, "cwd": cwd, "block_id": created.block_id, "address": address }),
-    )?;
+    shared
+        .lock()
+        .store
+        .log("agent_started", &json!({ "host": host, "program": program, "cwd": cwd, "block_id": created.block_id, "address": address }))?;
     Ok(json!({
         "host": host,
         "program": program,

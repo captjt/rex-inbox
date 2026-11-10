@@ -325,10 +325,7 @@ async fn run(cli: Cli) -> Result<()> {
             Ok(())
         }
         Cmd::Send { to, subject, as_me, body: b } => {
-            let v = api::call(
-                "messages.send",
-                json!({ "caller": caller(as_me), "to": to, "subject": subject, "body": body(b)? }),
-            )?;
+            let v = api::call("messages.send", json!({ "caller": caller(as_me), "to": to, "subject": subject, "body": body(b)? }))?;
             println!("{}", show::sent(&v));
             Ok(())
         }
@@ -401,7 +398,9 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Start { on, codex, cwd, name, session, json, prompt } => {
             let host = on.unwrap_or_else(|| "local".into());
             let cwd = match cwd {
-                Some(c) => Some(std::path::absolute(&c).ok().filter(|_| host == "local" && !c.starts_with('~')).map_or(c, |p| p.display().to_string())),
+                Some(c) => Some(
+                    std::path::absolute(&c).ok().filter(|_| host == "local" && !c.starts_with('~')).map_or(c, |p| p.display().to_string()),
+                ),
                 None if host == "local" => Some(std::env::current_dir()?.display().to_string()),
                 None => None,
             };
@@ -425,7 +424,12 @@ async fn run(cli: Cli) -> Result<()> {
                 return print_json(&v);
             }
             let s = |k: &str| v[k].as_str().unwrap_or("?").to_string();
-            println!("Started {} as {} in {}", agents::display(if codex { "codex" } else { "claude-code" }), s("address"), paths::tilde(&s("cwd")));
+            println!(
+                "Started {} as {} in {}",
+                agents::display(if codex { "codex" } else { "claude-code" }),
+                s("address"),
+                paths::tilde(&s("cwd"))
+            );
             println!("Message it: rex-inbox send --to {} …", s("address"));
             Ok(())
         }

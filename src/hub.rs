@@ -15,7 +15,7 @@ use tokio::task::JoinSet;
 use tokio::time::{Instant, sleep, sleep_until};
 
 use crate::api::{Request, Response};
-use crate::mirror::{HostMirror, Pane, Record, SessionSnapshot, Session, TERMINAL, Window};
+use crate::mirror::{HostMirror, Pane, Record, Session, SessionSnapshot, TERMINAL, Window};
 use crate::rex::Rex;
 use crate::store::{Alert, AlertFields, Message, Store};
 use crate::time;
@@ -23,17 +23,38 @@ use crate::time;
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum HubEvent {
-    AlertOpened { alert: Alert },
-    AlertUpdated { alert: Alert },
-    AlertResolved { alert: Alert },
-    MessageNew { message: Message },
-    MessageUpdated { message: Message },
-    HostConnected { host: String },
-    HostDisconnected { host: String, error: Option<String> },
-    SessionRenamed { host: String, session_id: String, label: String },
+    AlertOpened {
+        alert: Alert,
+    },
+    AlertUpdated {
+        alert: Alert,
+    },
+    AlertResolved {
+        alert: Alert,
+    },
+    MessageNew {
+        message: Message,
+    },
+    MessageUpdated {
+        message: Message,
+    },
+    HostConnected {
+        host: String,
+    },
+    HostDisconnected {
+        host: String,
+        error: Option<String>,
+    },
+    SessionRenamed {
+        host: String,
+        session_id: String,
+        label: String,
+    },
     /// An agent pane appeared, went away, or changed state: lists of
     /// agents should fetch them again.
-    AgentsChanged { host: String },
+    AgentsChanged {
+        host: String,
+    },
 }
 
 pub struct Core {

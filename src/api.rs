@@ -139,11 +139,7 @@ fn rex_rpc(server: &str, method: &str, params: &Value) -> Result<Value> {
 }
 
 fn answer(resp: Response) -> Result<Value> {
-    if resp.ok {
-        Ok(resp.result.unwrap_or(Value::Null))
-    } else {
-        Err(anyhow!(resp.error.unwrap_or_else(|| "unknown error".into())))
-    }
+    if resp.ok { Ok(resp.result.unwrap_or(Value::Null)) } else { Err(anyhow!(resp.error.unwrap_or_else(|| "unknown error".into()))) }
 }
 
 /// Call a method over the socket.

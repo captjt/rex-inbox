@@ -268,15 +268,11 @@ pub struct Store {
 
 /// Bring a database made by an older hub up to date.
 fn migrate(conn: &Connection) -> Result<()> {
-    let has_subject = conn
-        .prepare("SELECT 1 FROM pragma_table_info('alerts') WHERE name = 'subject'")?
-        .exists([])?;
+    let has_subject = conn.prepare("SELECT 1 FROM pragma_table_info('alerts') WHERE name = 'subject'")?.exists([])?;
     if !has_subject {
         conn.execute_batch("ALTER TABLE alerts ADD COLUMN subject TEXT")?;
     }
-    let has_preview = conn
-        .prepare("SELECT 1 FROM pragma_table_info('messages') WHERE name = 'preview'")?
-        .exists([])?;
+    let has_preview = conn.prepare("SELECT 1 FROM pragma_table_info('messages') WHERE name = 'preview'")?.exists([])?;
     if !has_preview {
         conn.execute_batch("ALTER TABLE messages ADD COLUMN preview TEXT")?;
     }
@@ -353,9 +349,8 @@ impl Store {
              subject) \
              VALUES (?1, ?2, 'open', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?19, ?20)",
             params![
-                id, f.key, f.category, f.host, f.session_id, f.block_id, f.window_id, f.record_id, f.state, f.kind,
-                f.app, f.title, f.msg, f.record_updated_at, f.session_label, f.window_label, f.pane_label, f.cwd, t,
-                f.subject
+                id, f.key, f.category, f.host, f.session_id, f.block_id, f.window_id, f.record_id, f.state, f.kind, f.app, f.title, f.msg,
+                f.record_updated_at, f.session_label, f.window_label, f.pane_label, f.cwd, t, f.subject
             ],
         )?;
         Ok(self.alert(id)?.expect("inserted alert"))
@@ -380,8 +375,19 @@ impl Store {
             "UPDATE alerts SET kind = ?2, app = ?3, title = ?4, msg = ?5, record_updated_at = ?6, session_label = ?7, \
              window_label = ?8, pane_label = ?9, cwd = ?10, window_id = ?11, updated_at = ?12, subject = ?13 WHERE id = ?1",
             params![
-                a.id, f.kind, f.app, f.title, f.msg, f.record_updated_at, f.session_label, f.window_label, f.pane_label,
-                f.cwd, f.window_id, now(), f.subject
+                a.id,
+                f.kind,
+                f.app,
+                f.title,
+                f.msg,
+                f.record_updated_at,
+                f.session_label,
+                f.window_label,
+                f.pane_label,
+                f.cwd,
+                f.window_id,
+                now(),
+                f.subject
             ],
         )?;
         let fresh = self.alert(a.id)?.expect("alert");
@@ -431,8 +437,21 @@ impl Store {
              to_host, to_session, to_block, subject, body, status, created_at) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
-                id, thread, reply_to, from.addr, from.host, from.session, from.block, to.addr, to.host, to.session,
-                to.block, subject, body, status, now()
+                id,
+                thread,
+                reply_to,
+                from.addr,
+                from.host,
+                from.session,
+                from.block,
+                to.addr,
+                to.host,
+                to.session,
+                to.block,
+                subject,
+                body,
+                status,
+                now()
             ],
         )?;
         Ok(self.message(id)?.expect("inserted message"))
@@ -440,7 +459,11 @@ impl Store {
 
     /// Messages to a pane. `unread` keeps those it has not read yet.
     pub fn messages_to_block(&self, host: &str, block: &str, unread: bool) -> Result<Vec<Message>> {
-        let f = if unread { "to_host = ?1 AND to_block = ?2 AND read_at IS NULL AND status != 'cancelled'" } else { "to_host = ?1 AND to_block = ?2" };
+        let f = if unread {
+            "to_host = ?1 AND to_block = ?2 AND read_at IS NULL AND status != 'cancelled'"
+        } else {
+            "to_host = ?1 AND to_block = ?2"
+        };
         self.messages_where(f, params![host, block])
     }
 
@@ -525,5 +548,4 @@ impl Store {
         let t = now();
         self.set_message(id, "status = CASE WHEN to_block IS NULL THEN 'done' ELSE 'cancelled' END, done_at = ?2", &[&t])
     }
-
 }

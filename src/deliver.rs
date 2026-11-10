@@ -85,11 +85,8 @@ fn plan(shared: &Shared, last: &HashMap<String, (Option<String>, Instant)>) -> V
         if root.state != "idle" && root.state != "done" {
             continue;
         }
-        let settled = root
-            .updated_at
-            .as_deref()
-            .and_then(crate::time::parse)
-            .is_some_and(|t| (time::OffsetDateTime::now_utc() - t) >= SETTLE);
+        let settled =
+            root.updated_at.as_deref().and_then(crate::time::parse).is_some_and(|t| (time::OffsetDateTime::now_utc() - t) >= SETTLE);
         if !settled {
             continue;
         }
@@ -129,10 +126,7 @@ pub fn render(m: &Message) -> String {
     }
     out.push_str("\n\n");
     out.push_str(m.body.trim_end());
-    out.push_str(&format!(
-        "\n\nReply with `rex-inbox reply {} \"...\"` (or `rex-inbox reply {} -` with the text on stdin).",
-        m.id, m.id
-    ));
+    out.push_str(&format!("\n\nReply with `rex-inbox reply {} \"...\"` (or `rex-inbox reply {} -` with the text on stdin).", m.id, m.id));
     if remote {
         out.push_str(" If rex-inbox isn't installed on this machine, answer here instead: the sender reads this pane.");
     }

@@ -278,7 +278,10 @@ pub fn message(m: &Value) {
 pub fn thread(m: &Value, thread: &[Value]) {
     let earlier: Vec<&Value> = thread.iter().filter(|t| t["id"].as_i64() < m["id"].as_i64()).collect();
     for t in &earlier {
-        println!("{}", dim(&format!("#{} from {}, {} ago: {}", t["id"], who(str(t, "from_addr")), age(str(t, "created_at")), first_line(t))));
+        println!(
+            "{}",
+            dim(&format!("#{} from {}, {} ago: {}", t["id"], who(str(t, "from_addr")), age(str(t, "created_at")), first_line(t)))
+        );
     }
     if !earlier.is_empty() {
         println!();
@@ -288,7 +291,10 @@ pub fn thread(m: &Value, thread: &[Value]) {
     if !later.is_empty() {
         println!();
         for t in later {
-            println!("{}", dim(&format!("#{} from {}, {} ago: {}", t["id"], who(str(t, "from_addr")), age(str(t, "created_at")), first_line(t))));
+            println!(
+                "{}",
+                dim(&format!("#{} from {}, {} ago: {}", t["id"], who(str(t, "from_addr")), age(str(t, "created_at")), first_line(t)))
+            );
         }
     }
     if !str(m, "error").is_empty() {

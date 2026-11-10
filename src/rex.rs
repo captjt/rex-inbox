@@ -176,15 +176,9 @@ impl Rex {
     /// `not_dir`.
     pub async fn list_dir(&self, session: &str, block: &str, path: &str) -> Result<(String, String, Vec<String>)> {
         let v = self.block_call(session, block, "list_dir", &json!({ "path": path })).await?;
-        let names = v["entries"]
-            .as_array()
-            .map(|a| a.iter().filter_map(|e| e["name"].as_str()).map(str::to_string).collect())
-            .unwrap_or_default();
-        Ok((
-            v["status"].as_str().unwrap_or_default().to_string(),
-            v["path"].as_str().unwrap_or(path).to_string(),
-            names,
-        ))
+        let names =
+            v["entries"].as_array().map(|a| a.iter().filter_map(|e| e["name"].as_str()).map(str::to_string).collect()).unwrap_or_default();
+        Ok((v["status"].as_str().unwrap_or_default().to_string(), v["path"].as_str().unwrap_or(path).to_string(), names))
     }
 
     /// Start `argv` in a new tab of a session, labeled `label`, in `cwd`,

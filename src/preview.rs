@@ -43,9 +43,7 @@ fn https_port(m: &Message) -> Option<u16> {
 }
 
 async fn answers(port: u16) -> bool {
-    tokio::time::timeout(Duration::from_secs(1), tokio::net::TcpStream::connect(("127.0.0.1", port)))
-        .await
-        .is_ok_and(|r| r.is_ok())
+    tokio::time::timeout(Duration::from_secs(1), tokio::net::TcpStream::connect(("127.0.0.1", port))).await.is_ok_and(|r| r.is_ok())
 }
 
 async fn tailscale(args: &[&str]) -> Result<()> {
@@ -79,13 +77,16 @@ pub async fn share(shared: &Shared, caller: &Caller, params: &Value) -> Result<V
         if from.host.as_deref() != Some("local") {
             bail!("previews from other machines aren't in yet; serve it on this Mac for now");
         }
-        let web_url = core.web_url.clone().ok_or_else(|| {
-            anyhow!("the inbox isn't on your tailnet yet, so there's nowhere to publish it (see rex-inbox web)")
-        })?;
+        let web_url = core
+            .web_url
+            .clone()
+            .ok_or_else(|| anyhow!("the inbox isn't on your tailnet yet, so there's nowhere to publish it (see rex-inbox web)"))?;
         // Sharing the same port again replaces the last one, on its address.
-        let replaced = core.store.live_previews()?.into_iter().find(|m| {
-            m.from_block == from.block && m.preview.as_ref().and_then(|p| p["port"].as_u64()) == Some(port as u64)
-        });
+        let replaced = core
+            .store
+            .live_previews()?
+            .into_iter()
+            .find(|m| m.from_block == from.block && m.preview.as_ref().and_then(|p| p["port"].as_u64()) == Some(port as u64));
         (from, web_url, replaced)
     };
     if !answers(port).await {

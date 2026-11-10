@@ -1,0 +1,8 @@
+# How the Rust code is formatted: `just fmt` (cargo fmt) applies it, and
+# `just check` refuses code that doesn't match. These are closest to how the
+# code was written by hand: wide lines, short constructs kept on one, and
+# long lists of short values (SQL parameters) packed rather than one a line.
+style_edition = "2024"
+max_width = 140
+use_small_heuristics = "Max"
+short_array_element_width_threshold = 24

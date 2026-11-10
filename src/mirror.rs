@@ -197,12 +197,8 @@ impl HostMirror {
         let mut changes = Changes::default();
         let sid = snap.session.session_id.clone();
         let keep: BTreeSet<&String> = snap.blocks.iter().map(|b| &b.0).collect();
-        let gone: Vec<String> = self
-            .panes
-            .values()
-            .filter(|p| p.session_id == sid && !keep.contains(&p.block_id))
-            .map(|p| p.block_id.clone())
-            .collect();
+        let gone: Vec<String> =
+            self.panes.values().filter(|p| p.session_id == sid && !keep.contains(&p.block_id)).map(|p| p.block_id.clone()).collect();
         for b in gone {
             self.panes.remove(&b);
             changes.panes.insert(b);
@@ -231,8 +227,7 @@ impl HostMirror {
     pub fn retain_sessions(&mut self, live: &BTreeSet<String>) -> Changes {
         let mut changes = Changes::default();
         self.sessions.retain(|id, _| live.contains(id));
-        let gone: Vec<String> =
-            self.panes.values().filter(|p| !live.contains(&p.session_id)).map(|p| p.block_id.clone()).collect();
+        let gone: Vec<String> = self.panes.values().filter(|p| !live.contains(&p.session_id)).map(|p| p.block_id.clone()).collect();
         for b in gone {
             self.panes.remove(&b);
             changes.panes.insert(b);
@@ -285,8 +280,13 @@ impl HostMirror {
                             changes.panes.insert(b);
                         }
                     }
-                    "block_created" | "session_view_changed" | "session_label_changed" | "window_created"
-                    | "window_closed" | "window_label_changed" | "active_window_changed" => {
+                    "block_created"
+                    | "session_view_changed"
+                    | "session_label_changed"
+                    | "window_created"
+                    | "window_closed"
+                    | "window_label_changed"
+                    | "active_window_changed" => {
                         changes.resync.insert(sid);
                     }
                     "session_destroyed" => changes.resync_all = true,
