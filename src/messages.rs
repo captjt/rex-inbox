@@ -190,10 +190,10 @@ pub async fn dispatch(shared: &Shared, method: &str, params: &Value) -> Result<V
             }
             // Answering a message means you've read it. Your own inbox
             // keeps only what still needs you, so an answer files it.
-            // A preview stays, to look at again, until you file it.
+            // Answering a preview finishes it too: filed, it comes off the
+            // tailnet, and the agent shares again for another look.
             if is_for(&orig, &from) {
-                let live = orig.preview.as_ref().is_some_and(|p| p["state"] == "live");
-                let fresh = if orig.to_me() && !live { core.store.mark_done(orig.id)? } else { core.store.mark_read(&orig)? };
+                let fresh = if orig.to_me() { core.store.mark_done(orig.id)? } else { core.store.mark_read(&orig)? };
                 emit_updated(&core, fresh);
             }
             Ok(serde_json::to_value(m)?)

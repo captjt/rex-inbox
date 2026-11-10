@@ -177,11 +177,11 @@ The app gets its own address on your tailnet, such as
 so it's served at `/` and its assets, cookies and live reload work as on
 localhost. It waits on you under Needs You, with Open, the agent's answers
 as buttons (Approve, when it offers none), and Reply for comments. Your
-answer goes back to the agent like any reply (`rex-inbox wait --thread N`);
-the item then says what you said and moves down to Messages. The
-preview comes down when you file the item, the agent's pane closes, the
-app stops answering for about 15 seconds, or the agent runs
-`share --stop`; the item says which.
+answer goes back to the agent like any reply (`rex-inbox wait --thread N`)
+and files the item, which takes the preview down; after changes, the agent
+shares again. Filing it does the same. It also comes down when the agent's
+pane closes, the app stops answering for about 15 seconds, or the agent
+runs `share --stop`; the item says which.
 
 - The app must answer on 127.0.0.1 on this Mac. Agents on other machines
   can't share yet.
