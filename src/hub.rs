@@ -563,6 +563,7 @@ pub async fn run(socket: PathBuf, db: PathBuf) -> Result<()> {
     say!("hub listening on {}", socket.display());
     tokio::spawn(crate::fleet::run(shared.clone()));
     tokio::spawn(crate::deliver::run(shared.clone()));
+    tokio::spawn(crate::preview::run(shared.clone()));
     tokio::spawn(crate::notify::run(shared.clone()));
     tokio::spawn(crate::push::run(shared.clone()));
     if let Some(addr) = crate::web::addr() {

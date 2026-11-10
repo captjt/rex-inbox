@@ -47,6 +47,7 @@ const ALLOWED: &[&str] = &[
     "messages.read",
     "messages.reply",
     "messages.send",
+    "sessions.rename",
     "push.key",
     "push.subscribe",
     "push.unsubscribe",
@@ -157,7 +158,7 @@ async fn events(State(shared): State<Shared>) -> impl IntoResponse {
 
 // ---- Tailscale ----
 
-fn tailscale_bin() -> Option<std::path::PathBuf> {
+pub(crate) fn tailscale_bin() -> Option<std::path::PathBuf> {
     if let Some(path) = std::env::var_os("PATH") {
         for dir in std::env::split_paths(&path) {
             let p = dir.join("tailscale");

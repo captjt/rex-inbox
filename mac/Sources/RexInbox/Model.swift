@@ -78,6 +78,8 @@ struct Message: Decodable, Identifiable, Hashable {
     let status: String
     let createdAt: String
     let error: String?
+    /// An app the sender serves for you to look at, on the tailnet.
+    let preview: Preview?
 
     var from: String { fromBlock == nil ? "you" : fromAddr }
 
@@ -85,6 +87,20 @@ struct Message: Decodable, Identifiable, Hashable {
         if let s = subject, !s.isEmpty { return s }
         return body.split(separator: "\n").first.map(String.init) ?? ""
     }
+}
+
+/// A message's preview (src/preview.rs): where the app is, the answers the
+/// agent offers, and whether it's still served.
+struct Preview: Decodable, Hashable {
+    let url: String
+    let port: Int
+    let options: [String]?
+    let state: String
+    let stopped: String?
+    /// What you answered, once you have.
+    let answer: String?
+
+    var live: Bool { state == "live" }
 }
 
 struct Inbox: Decodable {

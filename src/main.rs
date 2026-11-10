@@ -18,6 +18,7 @@ mod methods;
 mod mirror;
 mod notify;
 mod paths;
+mod preview;
 mod push;
 mod reviewer;
 mod rex;
@@ -148,6 +149,26 @@ enum Cmd {
         /// Give up after this many seconds (exit 2).
         #[arg(long)]
         timeout: Option<f64>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show the person an app this pane serves on this Mac, on the tailnet,
+    /// and ask them about it. Their answer comes back as a reply.
+    Share {
+        /// The app's port on this Mac (127.0.0.1).
+        port: Option<u16>,
+        /// What it is, such as "The new checkout form".
+        #[arg(long)]
+        title: Option<String>,
+        /// What you want to know, such as "Does the error state read right?".
+        #[arg(long)]
+        ask: Option<String>,
+        /// An answer to offer as a button; repeat for more.
+        #[arg(long = "option", value_name = "ANSWER")]
+        options: Vec<String>,
+        /// Stop sharing it (or, without a port, everything this pane shares).
+        #[arg(long)]
+        stop: bool,
         #[arg(long)]
         json: bool,
     },
@@ -318,6 +339,30 @@ async fn run(cli: Cli) -> Result<()> {
                 return print_json(&v);
             }
             show::thread(&v["message"], &list(&v["thread"]));
+            Ok(())
+        }
+        Cmd::Share { port, title, ask, options, stop, json } => {
+            if stop {
+                let v = api::call("previews.stop", json!({ "caller": caller(false), "port": port }))?;
+                if json {
+                    return print_json(&v);
+                }
+                let ids: Vec<String> = list(&v["stopped"]).iter().map(|i| format!("#{i}")).collect();
+                println!("stopped {}", ids.join(", "));
+                return Ok(());
+            }
+            let port = port.ok_or_else(|| anyhow::anyhow!("which port? rex-inbox share 3000"))?;
+            let v = api::call(
+                "previews.share",
+                json!({ "caller": caller(false), "port": port, "title": title, "ask": ask, "options": options }),
+            )?;
+            if json {
+                return print_json(&v);
+            }
+            let id = v["id"].as_i64().unwrap_or(0);
+            println!("#{id} in the inbox: {}", v["url"].as_str().unwrap_or(""));
+            println!("their answer comes back as a reply; to wait for it: rex-inbox wait --thread {id}");
+            println!("if the app turns the request away for its host (Vite: \"Blocked request\"), allow .ts.net hosts");
             Ok(())
         }
         Cmd::Wait { thread, timeout, json } => {

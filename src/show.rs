@@ -251,6 +251,17 @@ pub fn message(m: &Value) {
     if let Some(s) = m["subject"].as_str() {
         println!("Subject: {s}");
     }
+    let p = &m["preview"];
+    if p.is_object() {
+        let opts: Vec<&str> = p["options"].as_array().map(|a| a.iter().filter_map(|o| o.as_str()).collect()).unwrap_or_default();
+        match p["state"].as_str() {
+            Some("live") => println!("Preview: {} (port {})", str(p, "url"), p["port"]),
+            _ => println!("Preview: stopped, {}", p["stopped"].as_str().unwrap_or("no longer served")),
+        }
+        if !opts.is_empty() {
+            println!("Answers: {}", opts.join(" · "));
+        }
+    }
     println!();
     println!("{}", str(m, "body").trim_end());
 }

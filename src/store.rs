@@ -58,7 +58,8 @@ CREATE TABLE IF NOT EXISTS messages (
   read_at TEXT,
   done_at TEXT,
   attempts INTEGER NOT NULL DEFAULT 0,
-  error TEXT
+  error TEXT,
+  preview TEXT                       -- JSON: an app the sender serves (preview.rs)
 );
 CREATE INDEX IF NOT EXISTS messages_to ON messages(to_addr, status);
 CREATE INDEX IF NOT EXISTS messages_block ON messages(to_host, to_block, status);
@@ -202,6 +203,9 @@ pub struct Message {
     pub done_at: Option<String>,
     pub attempts: i64,
     pub error: Option<String>,
+    /// An app the sender serves for you to look at (see preview.rs): where
+    /// it is, the answers it offers, and whether it's still up.
+    pub preview: Option<serde_json::Value>,
 }
 
 impl Message {
@@ -220,7 +224,7 @@ pub struct End {
 }
 
 const MESSAGE_COLS: &str = "id, thread_id, reply_to, from_addr, from_host, from_session, from_block, to_addr, to_host, \
-     to_session, to_block, subject, body, status, created_at, delivered_at, read_at, done_at, attempts, error";
+     to_session, to_block, subject, body, status, created_at, delivered_at, read_at, done_at, attempts, error, preview";
 
 fn message_row(r: &Row) -> rusqlite::Result<Message> {
     Ok(Message {
@@ -244,6 +248,7 @@ fn message_row(r: &Row) -> rusqlite::Result<Message> {
         done_at: r.get(17)?,
         attempts: r.get(18)?,
         error: r.get(19)?,
+        preview: r.get::<_, Option<String>>(20)?.and_then(|s| serde_json::from_str(&s).ok()),
     })
 }
 
@@ -258,6 +263,12 @@ fn migrate(conn: &Connection) -> Result<()> {
         .exists([])?;
     if !has_subject {
         conn.execute_batch("ALTER TABLE alerts ADD COLUMN subject TEXT")?;
+    }
+    let has_preview = conn
+        .prepare("SELECT 1 FROM pragma_table_info('messages') WHERE name = 'preview'")?
+        .exists([])?;
+    if !has_preview {
+        conn.execute_batch("ALTER TABLE messages ADD COLUMN preview TEXT")?;
     }
     Ok(())
 }
@@ -451,6 +462,16 @@ impl Store {
         all.extend_from_slice(p);
         self.conn.execute(&format!("UPDATE messages SET {sql} WHERE id = ?1"), all.as_slice())?;
         self.message(id)
+    }
+
+    pub fn set_preview(&self, id: i64, preview: &serde_json::Value) -> Result<Option<Message>> {
+        let v = preview.to_string();
+        self.set_message(id, "preview = ?2", &[&v])
+    }
+
+    /// Previews still being served.
+    pub fn live_previews(&self) -> Result<Vec<Message>> {
+        self.messages_where("preview IS NOT NULL AND json_extract(preview, '$.state') = 'live'", [])
     }
 
     pub fn mark_delivered(&self, id: i64, read: bool) -> Result<Option<Message>> {

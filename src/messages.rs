@@ -60,6 +60,11 @@ impl Caller {
     }
 }
 
+/// Within the last ten seconds.
+fn just_now(at: &str) -> bool {
+    crate::time::parse(at).is_some_and(|t| time::OffsetDateTime::now_utc() - t < time::Duration::seconds(10))
+}
+
 fn is_for(m: &Message, who: &End) -> bool {
     match &who.block {
         None => m.to_me(),
@@ -166,12 +171,29 @@ pub async fn dispatch(shared: &Shared, method: &str, params: &Value) -> Result<V
                 (&orig.from_addr, &orig.from_host, &orig.from_session, &orig.from_block)
             };
             let to = End { addr: addr.clone(), host: host.clone(), session: session.clone(), block: block.clone() };
+            // The same answer twice in a moment is one tap too many (or one
+            // on the Mac and one on the phone): the agent gets it once.
+            if let Some(dup) = core.store.thread(orig.thread_id)?.into_iter().rev().find(|m| {
+                m.reply_to == Some(id) && m.from_block == from.block && m.body.trim() == body.trim() && just_now(&m.created_at)
+            }) {
+                return Ok(serde_json::to_value(dup)?);
+            }
             let subject = orig.subject.as_ref().map(|s| if s.starts_with("Re: ") { s.clone() } else { format!("Re: {s}") });
             let m = send(&core, &from, &to, subject.as_deref(), body, Some(id))?;
+            // A preview remembers your answer, so it shows as given.
+            if from.block.is_none()
+                && let Some(mut p) = orig.preview.clone()
+            {
+                p["answer"] = json!(body.trim());
+                p["answered_at"] = json!(m.created_at);
+                emit_updated(&core, core.store.set_preview(orig.id, &p)?);
+            }
             // Answering a message means you've read it. Your own inbox
             // keeps only what still needs you, so an answer files it.
+            // A preview stays, to look at again, until you file it.
             if is_for(&orig, &from) {
-                let fresh = if orig.to_me() { core.store.mark_done(orig.id)? } else { core.store.mark_read(&orig)? };
+                let live = orig.preview.as_ref().is_some_and(|p| p["state"] == "live");
+                let fresh = if orig.to_me() && !live { core.store.mark_done(orig.id)? } else { core.store.mark_read(&orig)? };
                 emit_updated(&core, fresh);
             }
             Ok(serde_json::to_value(m)?)
@@ -220,6 +242,9 @@ pub async fn dispatch(shared: &Shared, method: &str, params: &Value) -> Result<V
         }
 
         "messages.wait" => wait(shared, &caller, params).await,
+
+        "previews.share" => crate::preview::share(shared, &caller, params).await,
+        "previews.stop" => crate::preview::stop(shared, &caller, params).await,
 
         other => bail!("unknown method {other}"),
     }

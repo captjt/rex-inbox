@@ -55,6 +55,7 @@ const PATHS = {
   refresh: '<path d="M20.25 12a8.25 8.25 0 1 1-2.4-5.8"/><path d="M20.25 3.75v5h-5"/>',
   wrap: '<path d="M3.5 6h17M3.5 12h14a3 3 0 0 1 0 6H12"/><path d="M14 15.5l-2.5 2.5 2.5 2.5M3.5 18h5"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  globe: '<circle cx="12" cy="12" r="9.25"/><path d="M2.75 12h18.5M12 2.75c2.6 2.6 3.9 5.7 3.9 9.25s-1.3 6.65-3.9 9.25c-2.6-2.6-3.9-5.7-3.9-9.25S9.4 5.35 12 2.75z"/>',
   pencil: '<path d="M15.75 4.5l3.75 3.75L8.25 19.5l-4.75 1 1-4.75z"/><path d="M13.25 7l3.75 3.75"/>',
   folder: '<path d="M2.75 7.25a2 2 0 0 1 2-2h4.6l2 2.5h7.9a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2H4.75a2 2 0 0 1-2-2z"/>',
   up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
@@ -115,6 +116,25 @@ function release() {
   }
 }
 
+// The hub's build of this app. After an update (the hub restarts, so the
+// stream reconnects) a page on the old build reloads, once nothing's open.
+let build = null;
+async function checkBuild() {
+  try {
+    const b = (await call("status")).web?.build;
+    if (!b) return;
+    if (build && b !== build) {
+      state.reloadPending = true;
+      reloadIfIdle();
+    }
+    build = b;
+  } catch {}
+}
+function reloadIfIdle() {
+  const typing = Object.values(state.drafts).some((d) => d && d.trim());
+  if (state.reloadPending && !state.sheet && !typing) location.reload();
+}
+
 let events = null;
 function live() {
   if (events && events.readyState !== 2) return;
@@ -123,6 +143,7 @@ function live() {
   events.onopen = () => {
     state.conn = "on";
     soon(0);
+    checkBuild();
   };
   events.onerror = () => {
     state.conn = events.readyState === 2 ? "off" : "wait";
@@ -466,7 +487,72 @@ function alertCard(a) {
     </article>`);
 }
 
+// ---- previews: an app an agent serves for you to look at ----
+
+const previewLive = (m) => m.preview && m.preview.state === "live";
+
+function previewMeta(m) {
+  const p = m.preview;
+  return previewLive(m) ? `Preview · port ${p.port}` : `Preview stopped · ${p.stopped || "no longer served"}`;
+}
+
+// What a preview offers: Open while it's up, and the agent's answers.
+function previewActions(m, size = "") {
+  const busy = state.busy.has(m.id) ? "disabled" : "";
+  // Answered: say what you said, rather than offering it again.
+  const said = m.preview.answer
+    ? `<div class="answered">${ic("check")}<span>You said “${esc(m.preview.answer)}”</span><span class="age">${age(m.preview.answered_at)}</span></div>`
+    : "";
+  const opts = (said ? [] : m.preview.options || [])
+    .map((o) => `<button class="btn wide ${size}" data-act="preview-answer" data-id="${m.id}" data-value="${esc(o)}" ${busy}>${state.busy.get(m.id) === o ? '<span class="spin"></span>' : esc(o)}</button>`)
+    .join("");
+  const open = previewLive(m)
+    ? `<a class="btn wide primary ${size}" data-act="preview-open" href="${esc(m.preview.url)}" target="_blank" rel="noopener">${ic("globe")}Open</a>`
+    : "";
+  return { opts: said || (opts ? `<div class="actions options">${opts}</div>` : ""), open };
+}
+
+function previewCard(m) {
+  const busy = state.busy.has(m.id) ? "disabled" : "";
+  const { opts, open } = previewActions(m);
+  const live = previewLive(m);
+  return swipeable(m.id, false, `
+    <article class="card" id="item-${m.id}" data-open="${m.id}">
+      <div class="top">
+        <div class="badge-icon ${live ? "t-blue" : "t-gray"}">${ic("globe")}</div>
+        <div class="titles">
+          <div class="head"><b>${esc(m.subject || "Preview")}</b><span class="age">${age(m.created_at)}</span></div>
+          <div class="meta">${esc(messageFrom(m))} · ${esc(previewMeta(m))}</div>
+        </div>
+      </div>
+      <div class="prose clamp" data-clamp="${m.id}">${esc(m.body)}</div>
+      ${live ? opts : ""}
+      <div class="actions">
+        ${open}
+        <button class="btn wide" data-act="reply" data-id="${m.id}">${ic("reply")}Reply</button>
+        <button class="btn ${open ? "circle" : "wide"}" data-act="done" data-id="${m.id}" aria-label="Done" ${busy}>${busyLabel(m.id, "done", open ? "" : "Done", "check")}</button>
+      </div>
+    </article>`);
+}
+
+async function previewAnswer(id, text) {
+  if (state.busy.has(id)) return;
+  state.busy.set(id, text);
+  render();
+  try {
+    await call("messages.reply", { id, body: text });
+    haptic();
+    toast(`Sent “${text}”`);
+    if (state.sheet?.type === "message" && state.sheet.id === id) closeSheet();
+  } catch (e) {
+    toast(e.message, true);
+  }
+  state.busy.delete(id);
+  await refresh();
+}
+
 function messageCard(m) {
+  if (m.preview) return previewCard(m);
   const from = messageFrom(m);
   const unread = m.status === "unread";
   const open = state.expanded.has(m.id);
@@ -603,6 +689,7 @@ function closeSheet() {
     state.pending = false;
     soon();
   }
+  setTimeout(reloadIfIdle, 450);
 }
 
 const findAlert = (id) => state.alerts.find((a) => a.id === id);
@@ -635,10 +722,16 @@ function sheetHtml(s) {
   if (s.type === "message") {
     const m = findMessage(s.id) || s.message;
     const from = messageFrom(m);
-    return `${sheetHead("mail", "t-blue", from, [`#${m.id}`, age(m.created_at, true)].join(" · "))}
+    let extra = "";
+    if (m.preview) {
+      const { opts, open } = previewActions(m);
+      extra = `<div class="meta" style="margin-top:10px">${esc(previewMeta(m))}</div>${previewLive(m) ? opts : ""}${open ? `<div class="actions">${open}</div>` : ""}`;
+    }
+    return `${sheetHead(m.preview ? "globe" : "mail", "t-blue", from, [`#${m.id}`, age(m.created_at, true)].join(" · "))}
       <div class="sheet-body">
         ${m.subject ? `<div class="subject" style="margin-top:0">${esc(m.subject)}</div>` : ""}
         <div class="prose" ${m.subject ? 'style="margin-top:4px"' : ""}>${esc(m.body)}</div>
+        ${extra}
       </div>
       <div class="sheet-foot" id="sheet-foot">${composer(`m${m.id}`, `Reply to ${from}…`, "reply-send", m.id)}</div>`;
   }
@@ -1416,6 +1509,10 @@ document.addEventListener("click", async (e) => {
     }
     case "rename-save":
       return renameSession();
+    case "preview-open":
+      return; // the link opens it
+    case "preview-answer":
+      return previewAnswer(id, b.dataset.value);
     case "pane-view":
       if (state.sheet?.type === "pane" && state.sheet.view !== b.dataset.value) {
         state.sheet.view = state.paneView = b.dataset.value;
@@ -1565,6 +1662,7 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible") return;
   live(); // iOS drops the stream in the background
   soon(0);
+  checkBuild();
 });
 setInterval(() => {
   if (document.visibilityState === "visible" && !state.hold && !main.contains(document.activeElement)) render();

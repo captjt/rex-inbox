@@ -156,9 +156,38 @@ renames it, on the phone and in the Mac app.
 | `send --to NAME [--subject S] TEXT\|-` | Message an agent's pane (`reviewer`, `session/pane`, a block id) or `me`. |
 | `reply N TEXT\|-` | Answer a message; it goes to the other side. |
 | `inbox`, `read N`, `wait [--thread N] [--timeout S]` | An agent's own messages. |
+| `share PORT [--title T] [--ask Q] [--option A]...`, `share --stop [PORT]` | Show you an app the agent serves on this Mac, on your tailnet (see [Previews](#previews)). |
 | `name NAME`, `whoami` | Name this pane so others can reach it. |
 | `web` | The phone web app's address, and how to publish it. |
 | `status`, `watch`, `up`, `down`, `logs` | The hub. |
+
+## Previews
+
+An agent that runs something for you to look at (a dev server, a local
+stack) can share it instead of sending a localhost link you can't open
+from your phone:
+
+```sh
+rex-inbox share 5173 --title "Checkout form" \
+  --ask "Does the new error state read right?" --option "Looks right" --option "Needs work"
+```
+
+The app gets its own address on your tailnet, such as
+`https://mac.tail1.ts.net:7431/` (`tailscale serve`, ports 7431 to 7499),
+so it's served at `/` and its assets, cookies and live reload work as on
+localhost. An item in your inbox has Open, the agent's answers as buttons,
+and Reply; your answer goes back to the agent like any reply
+(`rex-inbox wait --thread N`), and the item then says what you said. The
+preview comes down when you file the item, the agent's pane closes, the
+app stops answering for about 15 seconds, or the agent runs
+`share --stop`; the item says which.
+
+- The app must answer on 127.0.0.1 on this Mac. Agents on other machines
+  can't share yet.
+- The browser asks for the tailnet name, so Vite and webpack-dev-server turn
+  requests away until `.ts.net` is in their `allowedHosts`.
+- Anyone on your tailnet can open a preview while it's up, the way
+  `tailscale serve` works; the inbox itself answers only you.
 
 ## Starting agents, on any machine
 

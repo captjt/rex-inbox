@@ -209,6 +209,7 @@ mod tests {
             done_at: None,
             attempts: 0,
             error: None,
+            preview: None,
         }
     }
 

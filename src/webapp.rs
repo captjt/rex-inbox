@@ -19,6 +19,21 @@ const ASSETS: &[Asset] = &[
     Asset { path: "/icon-512.png", mime: "image/png", body: include_bytes!("../web/icon-512.png") },
 ];
 
+/// Which build of the web app this hub serves: a page that loaded another
+/// one reloads itself (app.js), so a phone never runs an old app on a new hub.
+pub fn build() -> &'static str {
+    static BUILD: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    BUILD.get_or_init(|| {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for a in ASSETS {
+            a.path.hash(&mut h);
+            a.body.hash(&mut h);
+        }
+        format!("{:016x}", h.finish())
+    })
+}
+
 pub async fn asset(uri: Uri) -> Response {
     let path = if uri.path() == "/index.html" { "/" } else { uri.path() };
     let Some(a) = ASSETS.iter().find(|a| a.path == path) else {

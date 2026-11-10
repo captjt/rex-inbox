@@ -105,6 +105,7 @@ pub async fn dispatch(shared: &Shared, method: &str, params: Value) -> Result<Va
                 "notifiers": core.notifiers,
                 "web": {
                     "listen": crate::web::addr().map(|a| a.to_string()),
+                    "build": crate::webapp::build(),
                     "owner": core.owner,
                     "url": core.web_url,
                     "devices": core.store.push_subs().map(|v| v.len()).unwrap_or(0),
@@ -312,7 +313,9 @@ pub async fn dispatch(shared: &Shared, method: &str, params: Value) -> Result<Va
 
         "turn.done" => crate::hooks::turn_done(shared, &params),
 
-        m if m.starts_with("messages.") || m == "whoami" || m == "name" => crate::messages::dispatch(shared, m, &params).await,
+        m if m.starts_with("messages.") || m.starts_with("previews.") || m == "whoami" || m == "name" => {
+            crate::messages::dispatch(shared, m, &params).await
+        }
 
         other => bail!("unknown method {other}"),
     }

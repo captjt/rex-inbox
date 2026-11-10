@@ -208,6 +208,11 @@ h2 button.rename svg { font-size: 16px; }
   transition: transform 0.12s, opacity 0.15s, background-color 0.15s;
 }
 .btn:active { transform: scale(0.96); }
+a.btn { text-decoration: none; }
+.actions.options { flex-wrap: wrap; }
+.actions.options .btn { flex: 1 1 40%; }
+.answered { display: flex; align-items: center; gap: 7px; margin-top: 12px; color: var(--green); font-size: 15px; font-weight: 600; }
+.answered .age { margin-left: auto; color: var(--muted); font-weight: 400; font-size: 13px; }
 .btn:disabled { opacity: 0.45; }
 .btn svg { font-size: 17px; stroke-width: 2.4; }
 .btn.wide { flex: 1; }

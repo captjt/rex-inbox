@@ -254,8 +254,8 @@ struct MessageCard: View {
         Card {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Image(systemName: unread ? "envelope.badge.fill" : "envelope.open")
-                        .foregroundStyle(unread ? Color.accentColor : .secondary)
+                    Image(systemName: message.preview != nil ? "globe" : unread ? "envelope.badge.fill" : "envelope.open")
+                        .foregroundStyle(unread || message.preview?.live == true ? Color.accentColor : .secondary)
                     Text(message.from).font(.headline)
                     if let r = message.replyTo {
                         Text("replying to #\(r)").font(.subheadline).foregroundStyle(.secondary)
@@ -275,6 +275,9 @@ struct MessageCard: View {
                 if long {
                     Button(expanded ? "Show less" : "Show more") { expanded.toggle() }
                         .buttonStyle(.link)
+                }
+                if let p = message.preview {
+                    previewRow(p, busy: busy)
                 }
                 if replying {
                     HStack(alignment: .bottom, spacing: 8) {
@@ -312,6 +315,35 @@ struct MessageCard: View {
                 }
                 .disabled(busy)
             }
+        }
+    }
+
+    /// Open, and the agent's answers, while the preview is served.
+    @ViewBuilder
+    private func previewRow(_ p: Preview, busy: Bool) -> some View {
+        if p.live {
+            HStack(spacing: 8) {
+                Button {
+                    if let url = URL(string: p.url) { NSWorkspace.shared.open(url) }
+                } label: {
+                    Label("Open", systemImage: "safari")
+                }
+                .buttonStyle(.borderedProminent)
+                .help(p.url)
+                if let said = p.answer {
+                    Label("You said “\(said)”", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green).font(.callout.weight(.medium))
+                } else {
+                    ForEach(p.options ?? [], id: \.self) { option in
+                        Button(option) { Task { await store.reply(message.id, option) } }
+                    }
+                }
+                Spacer()
+                Text("Preview · port \(String(p.port))").font(.caption).foregroundStyle(.secondary)
+            }
+            .disabled(busy)
+        } else {
+            Text("Preview stopped · \(p.stopped ?? "no longer served")").font(.caption).foregroundStyle(.secondary)
         }
     }
 
