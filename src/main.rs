@@ -24,6 +24,7 @@ mod reviewer;
 mod rex;
 mod service;
 mod show;
+mod skill;
 mod start;
 mod store;
 mod time;
@@ -220,6 +221,13 @@ enum Cmd {
         /// install, or remove; nothing to show them.
         action: Option<String>,
     },
+    /// Show the rex-inbox skill, which teaches Claude Code and Codex to
+    /// message, reach you, and share what they serve; install or remove it.
+    /// `up` installs it when it's missing.
+    Skill {
+        /// install, or remove; nothing to show it.
+        action: Option<String>,
+    },
     /// Run as an agent's hook: `stop` reads the hook's input on stdin.
     #[command(hide = true)]
     Hook { event: String },
@@ -301,7 +309,11 @@ async fn main() {
 async fn run(cli: Cli) -> Result<()> {
     match cli.cmd {
         Cmd::Hub => hub::run(paths::socket(), paths::db()).await,
-        Cmd::Up => service::up(),
+        Cmd::Up => {
+            service::up()?;
+            skill::on_up();
+            Ok(())
+        }
         Cmd::Down => service::down(),
         Cmd::Logs { lines } => service::logs(lines),
         Cmd::Ls { all, history, json } => {
@@ -490,6 +502,9 @@ async fn run(cli: Cli) -> Result<()> {
             if hooks::any_missing() {
                 println!("  agents here don't say what they did when they finish: run rex-inbox hooks install");
             }
+            if skill::any_missing() {
+                println!("  agents here don't have the current rex-inbox skill: see rex-inbox skill");
+            }
             if list(&v["hosts"]).len() > 1 && !has_rpc_action() {
                 println!("  agents on other hosts can't reach this hub: Rex here lacks the inbox_rpc action.");
                 println!("  Load rex/init.lua from rex-inbox in your Rex init.lua, then: rex config reload");
@@ -554,6 +569,7 @@ async fn run(cli: Cli) -> Result<()> {
             Ok(true)
         }),
         Cmd::Hooks { action } => hooks::cli(action.as_deref()),
+        Cmd::Skill { action } => skill::cli(action.as_deref()),
         Cmd::Hook { event } => match event.as_str() {
             "stop" => hooks::stop(),
             "send" => hooks::send(caller(false)),
