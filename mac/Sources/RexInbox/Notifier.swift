@@ -96,7 +96,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 
     private func post(message m: Message) {
         let content = UNMutableNotificationContent()
-        content.title = "Message from \(m.from)"
+        content.title = m.wantsReview ? "\(m.from) wants your review" : "Message from \(m.from)"
         content.subtitle = "#\(m.id)" + (m.subject.map { " · \($0)" } ?? "")
         content.body = m.body
         content.sound = .default

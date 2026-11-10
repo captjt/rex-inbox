@@ -67,6 +67,8 @@ pub async fn share(shared: &Shared, caller: &Caller, params: &Value) -> Result<V
         .as_array()
         .map(|a| a.iter().filter_map(|o| o.as_str()).map(str::trim).filter(|o| !o.is_empty()).map(str::to_string).collect())
         .unwrap_or_default();
+    // A preview asks for approval or comments: Approve, and Reply for the rest.
+    let options = if options.is_empty() { vec!["Approve".to_string()] } else { options };
 
     let (from, web_url, replaced) = {
         let core = shared.lock();

@@ -138,7 +138,7 @@ pub async fn run(shared: Shared) {
             HubEvent::MessageNew { message } if message.to_me() => {
                 let first = message.body.lines().find(|l| !l.trim().is_empty()).unwrap_or("").to_string();
                 json!({
-                    "title": format!("Message from {}", message.from_addr),
+                    "title": message.headline(),
                     "body": message.subject.as_ref().map(|s| format!("{s}\n{first}")).unwrap_or(first),
                     "tag": format!("item-{}", message.id),
                     "url": format!("/#item-{}", message.id),

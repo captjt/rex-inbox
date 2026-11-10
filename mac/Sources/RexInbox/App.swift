@@ -47,7 +47,7 @@ struct MenuBarLabel: View {
         if !store.connected {
             return .symbol("tray.and.arrow.down", color: .systemGray)
         }
-        if !store.needsYou.isEmpty {
+        if store.needsYouCount > 0 {
             return .symbol("tray.full.fill", color: .systemOrange)
         }
         if !store.unread.isEmpty {

@@ -212,6 +212,16 @@ impl Message {
     pub fn to_me(&self) -> bool {
         self.to_block.is_none()
     }
+
+    /// A preview you haven't answered: the agent waits on your review.
+    pub fn wants_review(&self) -> bool {
+        self.preview.as_ref().is_some_and(|p| p["state"] == "live" && p["answer"].is_null())
+    }
+
+    /// What a notification calls it.
+    pub fn headline(&self) -> String {
+        if self.wants_review() { format!("{} wants your review", self.from_addr) } else { format!("Message from {}", self.from_addr) }
+    }
 }
 
 /// One end of a message: a pane, or the person (`addr` = "me", no block).

@@ -175,9 +175,10 @@ rex-inbox share 5173 --title "Checkout form" \
 The app gets its own address on your tailnet, such as
 `https://mac.tail1.ts.net:7431/` (`tailscale serve`, ports 7431 to 7499),
 so it's served at `/` and its assets, cookies and live reload work as on
-localhost. An item in your inbox has Open, the agent's answers as buttons,
-and Reply; your answer goes back to the agent like any reply
-(`rex-inbox wait --thread N`), and the item then says what you said. The
+localhost. It waits on you under Needs You, with Open, the agent's answers
+as buttons (Approve, when it offers none), and Reply for comments. Your
+answer goes back to the agent like any reply (`rex-inbox wait --thread N`);
+the item then says what you said and moves down to Messages. The
 preview comes down when you file the item, the agent's pane closes, the
 app stops answering for about 15 seconds, or the agent runs
 `share --stop`; the item says which.

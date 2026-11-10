@@ -278,15 +278,21 @@ function md(text) {
 
 // ---- the page ----
 
+// A preview you haven't answered is an agent waiting on your review, so it
+// counts, and shows, with what needs you.
+const wantsReview = (m) => !!(m.preview && m.preview.state === "live" && m.preview.answer == null);
+
 function counts() {
   const needs = state.alerts.filter((a) => a.category === "needs_you");
   const failed = state.alerts.filter((a) => a.category === "failed");
   const finished = state.alerts.filter((a) => a.category === "finished");
-  return { needs, failed, finished, messages: state.messages };
+  const reviews = state.messages.filter(wantsReview);
+  const messages = state.messages.filter((m) => !wantsReview(m));
+  return { needs, reviews, waiting: needs.length + reviews.length, failed, finished, messages };
 }
 
 function paintSummary() {
-  const { needs, failed, messages } = counts();
+  const { waiting, failed, messages } = counts();
   const dot = document.querySelector("#summary .dot");
   let text;
   if (state.conn === "off") {
@@ -304,7 +310,7 @@ function paintSummary() {
       const waiting = state.panes.filter((p) => p.state === "blocked").length;
       if (waiting) parts.push(`${waiting} waiting on you`);
     } else {
-      if (needs.length) parts.push(`${needs.length} need${needs.length === 1 ? "s" : ""} you`);
+      if (waiting) parts.push(`${waiting} need${waiting === 1 ? "s" : ""} you`);
       if (messages.length) parts.push(plural(messages.length, "message"));
       if (failed.length) parts.push(`${failed.length} failed`);
       if (!parts.length) parts.push("All clear", working ? `${working} working` : plural(state.panes.length, "agent"));
@@ -313,7 +319,7 @@ function paintSummary() {
     dot.className = state.conn === "on" ? "dot" : "dot wait";
   }
   $("summary-text").textContent = text;
-  document.title = needs.length ? `(${needs.length}) Rex Inbox` : "Rex Inbox";
+  document.title = waiting ? `(${waiting}) Rex Inbox` : "Rex Inbox";
 }
 
 function render() {
@@ -348,7 +354,7 @@ function paintTabbar(c) {
     b.setAttribute("aria-selected", on);
   }
   const badge = bar.querySelector('[data-tab="inbox"] .count');
-  const n = c.needs.length + c.messages.length;
+  const n = c.waiting + c.messages.length;
   badge.hidden = !n;
   badge.textContent = n > 99 ? "99+" : n;
 }
@@ -363,7 +369,7 @@ const FILTERS = [
 
 function paintFilters(c) {
   const el = $("filters");
-  const n = { needs: c.needs.length, messages: c.messages.length, failed: c.failed.length, finished: c.finished.length };
+  const n = { needs: c.waiting, messages: c.messages.length, failed: c.failed.length, finished: c.finished.length };
   n.all = n.needs + n.messages + n.failed + n.finished;
   const kinds = FILTERS.filter(([k]) => k !== "all" && n[k] > 0).length;
   if (state.filter !== "all" && !n[state.filter]) state.filter = "all";
@@ -386,7 +392,7 @@ function inboxView(c) {
   const list = (items, card) => items.map(card).join("");
   switch (state.filter) {
     case "needs":
-      return list(c.needs, alertCard);
+      return list(c.needs, alertCard) + list(c.reviews, messageCard);
     case "messages":
       return list(c.messages, messageCard);
     case "failed":
@@ -395,7 +401,7 @@ function inboxView(c) {
       return list(c.finished, alertCard);
   }
   let html = "";
-  if (c.needs.length) html += section("Needs you", c.needs.length) + list(c.needs, alertCard);
+  if (c.waiting) html += section("Needs you", c.waiting) + list(c.needs, alertCard) + list(c.reviews, messageCard);
   if (c.messages.length) html += section("Messages", c.messages.length) + list(c.messages, messageCard);
   if (c.failed.length) html += section("Failed", c.failed.length) + list(c.failed, alertCard);
   html += runningSection(running);
@@ -493,7 +499,8 @@ const previewLive = (m) => m.preview && m.preview.state === "live";
 
 function previewMeta(m) {
   const p = m.preview;
-  return previewLive(m) ? `Preview · port ${p.port}` : `Preview stopped · ${p.stopped || "no longer served"}`;
+  if (!previewLive(m)) return `Preview stopped · ${p.stopped || "no longer served"}`;
+  return p.answer == null ? `Wants your review · port ${p.port}` : `Preview · port ${p.port}`;
 }
 
 // What a preview offers: Open while it's up, and the agent's answers.

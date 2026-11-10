@@ -22,8 +22,8 @@ struct MainWindow: View {
             List(selection: $selection) {
                 Section("Inbox") {
                     row(.inbox(.all), "Everything", "tray.full", store.alerts.count + store.messages.count)
-                    row(.inbox(.needsYou), "Needs You", "hand.raised", store.needsYou.count)
-                    row(.inbox(.messages), "Messages", "envelope", store.messages.count)
+                    row(.inbox(.needsYou), "Needs You", "hand.raised", store.needsYouCount)
+                    row(.inbox(.messages), "Messages", "envelope", store.mail.count)
                     row(.inbox(.failed), "Failed", "xmark.octagon", store.failed.count)
                     row(.inbox(.finished), "Finished", "checkmark.circle", store.finished.count)
                 }

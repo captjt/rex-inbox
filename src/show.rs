@@ -85,15 +85,24 @@ pub fn inbox(alerts_list: &[Value], messages_list: &[Value]) {
         println!("Nothing needs you.");
         return;
     }
-    alerts(alerts_list);
-    if !messages_list.is_empty() {
+    // A preview you haven't answered is an agent waiting on your review.
+    let waits = |m: &&Value| m["preview"]["state"] == "live" && m["preview"]["answer"].is_null();
+    let (reviews, rest): (Vec<&Value>, Vec<&Value>) = messages_list.iter().partition(waits);
+    sections(alerts_list, &["needs_you"]);
+    if !reviews.is_empty() {
+        println!("{}", bold("Wants your review"));
+        message_rows(&reviews.into_iter().cloned().collect::<Vec<_>>(), true);
+    }
+    sections(alerts_list, &["failed", "finished"]);
+    if !rest.is_empty() {
         println!("{}", bold("Messages"));
-        message_rows(messages_list, true);
+        message_rows(&rest.into_iter().cloned().collect::<Vec<_>>(), true);
     }
 }
 
-pub fn alerts(list: &[Value]) {
-    for (category, heading) in [("needs_you", "Needs you"), ("failed", "Failed"), ("finished", "Finished")] {
+fn sections(list: &[Value], categories: &[&str]) {
+    let headings = [("needs_you", "Needs you"), ("failed", "Failed"), ("finished", "Finished")];
+    for (category, heading) in headings.into_iter().filter(|(c, _)| categories.contains(c)) {
         let rows: Vec<Vec<String>> = list
             .iter()
             .filter(|a| str(a, "category") == category)

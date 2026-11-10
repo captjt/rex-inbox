@@ -91,7 +91,7 @@ pub async fn run(shared: Shared) {
                 };
                 let note = Note {
                     id: message.id,
-                    title: format!("Message from {}", message.from_addr),
+                    title: message.headline(),
                     subtitle: format!("#{} · reply with rex-inbox reply {}", message.id, message.id),
                     body,
                 };

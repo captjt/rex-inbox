@@ -82,6 +82,8 @@ struct Message: Decodable, Identifiable, Hashable {
     let preview: Preview?
 
     var from: String { fromBlock == nil ? "you" : fromAddr }
+    /// A preview the agent waits on you to review: it belongs with what needs you.
+    var wantsReview: Bool { preview?.waiting == true }
 
     var firstLine: String {
         if let s = subject, !s.isEmpty { return s }
@@ -101,6 +103,8 @@ struct Preview: Decodable, Hashable {
     let answer: String?
 
     var live: Bool { state == "live" }
+    /// Up, and not answered yet: the agent waits on your review.
+    var waiting: Bool { live && answer == nil }
 }
 
 struct Inbox: Decodable {

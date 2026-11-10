@@ -339,7 +339,7 @@ struct MessageCard: View {
                     }
                 }
                 Spacer()
-                Text("Preview · port \(String(p.port))").font(.caption).foregroundStyle(.secondary)
+                Text("\(p.waiting ? "Wants your review" : "Preview") · port \(String(p.port))").font(.caption).foregroundStyle(.secondary)
             }
             .disabled(busy)
         } else {
@@ -447,13 +447,14 @@ struct InboxList: View {
                                ? "Agents that are blocked, failed, or finished show up here, with messages to you."
                                : "Your agents are below. You'll hear when one needs you.")
             }
-            if !store.needsYou.isEmpty {
-                SectionHeader(title: "Needs you", count: store.needsYou.count)
+            if store.needsYouCount > 0 {
+                SectionHeader(title: "Needs you", count: store.needsYouCount)
                 ForEach(store.needsYou) { AlertCard(store: store, alert: $0) }
+                ForEach(store.reviews) { MessageCard(store: store, message: $0) }
             }
-            if !store.messages.isEmpty {
-                SectionHeader(title: "Messages", count: store.messages.count)
-                ForEach(store.messages) { MessageCard(store: store, message: $0) }
+            if !store.mail.isEmpty {
+                SectionHeader(title: "Messages", count: store.mail.count)
+                ForEach(store.mail) { MessageCard(store: store, message: $0) }
             }
             if !store.failed.isEmpty {
                 SectionHeader(title: "Failed", count: store.failed.count)
@@ -481,16 +482,21 @@ struct InboxList: View {
                 }
             }
         case .needsYou:
-            alerts(store.needsYou, empty: "Nothing is waiting on you.")
+            if store.reviews.isEmpty {
+                alerts(store.needsYou, empty: "Nothing is waiting on you.")
+            } else {
+                ForEach(store.needsYou) { AlertCard(store: store, alert: $0) }
+            }
+            ForEach(store.reviews) { MessageCard(store: store, message: $0) }
         case .failed:
             alerts(store.failed, empty: "No agent has failed.")
         case .finished:
             alerts(store.finished, empty: "Nothing finished is waiting to be looked at.")
         case .messages:
-            if store.messages.isEmpty {
+            if store.mail.isEmpty {
                 EmptyState(symbol: "envelope.open", title: "No messages", detail: "Agents' messages to you show up here.")
             }
-            ForEach(store.messages) { MessageCard(store: store, message: $0) }
+            ForEach(store.mail) { MessageCard(store: store, message: $0) }
         }
     }
 

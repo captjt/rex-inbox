@@ -40,16 +40,22 @@ final class Store {
         let open = Set(alerts.map { $0.host + "|" + $0.blockId })
         return panes.filter { !open.contains($0.id) }
     }
-    var unread: [Message] { messages.filter { $0.status == "unread" } }
+    /// Previews waiting on your review; they count as needing you.
+    var reviews: [Message] { messages.filter(\.wantsReview) }
+    /// Every other message to you.
+    var mail: [Message] { messages.filter { !$0.wantsReview } }
+    var needsYouCount: Int { needsYou.count + reviews.count }
+    var unread: [Message] { mail.filter { $0.status == "unread" } }
     /// What the menu bar counts: things waiting on you.
-    var waiting: Int { needsYou.count + unread.count }
+    var waiting: Int { needsYouCount + unread.count }
 
     /// "2 need you · 1 message · 6 agents"
     var summary: String {
         guard connected else { return "Not connected" }
         var parts: [String] = []
-        if !needsYou.isEmpty { parts.append("\(needsYou.count) need\(needsYou.count == 1 ? "s" : "") you") }
-        if !messages.isEmpty { parts.append("\(messages.count) message\(messages.count == 1 ? "" : "s")") }
+        let n = needsYouCount
+        if n > 0 { parts.append("\(n) need\(n == 1 ? "s" : "") you") }
+        if !mail.isEmpty { parts.append("\(mail.count) message\(mail.count == 1 ? "" : "s")") }
         if !failed.isEmpty { parts.append("\(failed.count) failed") }
         if parts.isEmpty { parts.append("All clear") }
         parts.append("\(panes.count) agent\(panes.count == 1 ? "" : "s")")
