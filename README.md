@@ -72,13 +72,13 @@ app shows in the Dock while that window is open. The ＋ starts an agent
     <td valign="top">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/images/inbox-dark.png">
-        <img src="docs/images/inbox-light.png" width="400" alt="The Inbox tab: a review ready to post with Post, Dismiss and Preview, a reviewer's permission prompt with Approve and Deny, a question, a message to reply to, and a failed agent">
+        <img src="docs/images/inbox-light.png" width="400" alt="The Inbox tab: a review ready to post with Post, Dismiss and Preview, a reviewer's permission prompt with Approve and Deny, a question, a message to reply to, a failed agent, and below them the agents still running">
       </picture>
     </td>
     <td valign="top">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/images/agents-dark.png">
-        <img src="docs/images/agents-light.png" width="400" alt="The Agents tab: each agent pane by session, this Mac's first and then another machine's (studio · inbox), with its state, its folder, and what it's doing or what it said when it finished, and buttons to open it in Rex or message it">
+        <img src="docs/images/agents-light.png" width="400" alt="The Agents tab: each agent pane by session, this Mac's first and then another machine's (studio · inbox), with its state, its folder, and what it's doing or what it said when it finished, and buttons to open it in Rex or message it; a pencil by each session's name renames it">
       </picture>
     </td>
   </tr>
@@ -132,6 +132,11 @@ bubbles, what it said, each tool it ran as a row that opens to its output,
 and Approve and Deny at the top when it waits on you. It follows the pane
 while it's open; Screen shows the terminal as it is. A session's pencil
 renames it, on the phone and in the Mac app.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/phone-pane-dark.png">
+  <img src="docs/images/phone-pane-light.png" width="260" alt="An agent's pane on the phone as a conversation: a status card saying it's working on the checkout form with two subagents, Conversation and Screen, the agent's reply with a list, Write, Update and Bash rows with the test run open, its latest message, the turn's timing, and a box to message it">
+</picture>
 
 ## Commands
 

@@ -194,6 +194,11 @@ draft_prompt="Add an index for orders by customer and created_at, and show the q
 new_agent_js="document.querySelector('[data-tab=agents]').click();
   setTimeout(() => { document.querySelector('[data-act=new-agent]').click();
     setTimeout(() => { Object.assign(state.draft, {host: '$draft_host', cwd: '$draft_folder', prompt: '$draft_prompt'}); paintNew(); }, 400); }, 300);"
+# frontend's pane as a conversation, with its test run open.
+pane_js="document.querySelector('[data-tab=agents]').click();
+  setTimeout(() => document.querySelector('[data-act=pane][data-key=\"local|block:frontend\"]').click(), 300);
+  setTimeout(() => { const t = document.querySelectorAll('details.tool'); t[t.length - 1].open = true;
+    const b = document.getElementById('pane-body'); b.scrollTop = b.scrollHeight; }, 1500);"
 
 for look in light dark; do
   "$app" --snapshot "$images/inbox-$look.png" --appearance "$look"
@@ -202,8 +207,9 @@ for look in light dark; do
     --draft-host "$draft_host" --draft-folder "$draft_folder" --draft-prompt "$draft_prompt"
   node "$here/phone-shot.mjs" "http://127.0.0.1:$port/" "$images/phone-$look.png" "$look"
   node "$here/phone-shot.mjs" "http://127.0.0.1:$port/" "$images/phone-new-agent-$look.png" "$look" "$new_agent_js"
+  SHOT_WAIT=2600 node "$here/phone-shot.mjs" "http://127.0.0.1:$port/" "$images/phone-pane-$look.png" "$look" "$pane_js"
 done
-echo "wrote $images/{inbox,agents,new-agent,phone,phone-new-agent}-{light,dark}.png"
+echo "wrote $images/{inbox,agents,new-agent,phone,phone-new-agent,phone-pane}-{light,dark}.png"
 
 # The social preview card shows inbox-dark.png, so render it again too.
 chrome="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
