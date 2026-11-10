@@ -524,7 +524,7 @@ function previewCard(m) {
   const { opts, open } = previewActions(m);
   const live = previewLive(m);
   return swipeable(m.id, false, `
-    <article class="card" id="item-${m.id}" data-open="${m.id}">
+    <article class="card preview" id="item-${m.id}" data-open="${m.id}">
       <div class="top">
         <div class="badge-icon ${live ? "t-blue" : "t-gray"}">${ic("globe")}</div>
         <div class="titles">

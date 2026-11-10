@@ -47,7 +47,8 @@ $ rex-inbox approve 17
 git clone https://github.com/captjt/rex-inbox ~/src/rex-inbox
 cd ~/src/rex-inbox
 cargo install --path .
-rex-inbox up              # the hub, as a LaunchAgent (logs: rex-inbox logs)
+rex-inbox up              # the hub, as a LaunchAgent (logs: rex-inbox logs),
+                          # and the agents' rex-inbox skill
 rex-inbox hooks install   # agents say what they did when they finish
 mac/build.sh              # Rex Inbox.app, in ~/Applications
 ```
@@ -72,7 +73,7 @@ app shows in the Dock while that window is open. The ＋ starts an agent
     <td valign="top">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/images/inbox-dark.png">
-        <img src="docs/images/inbox-light.png" width="400" alt="The Inbox tab: a review ready to post with Post, Dismiss and Preview, a reviewer's permission prompt with Approve and Deny, a question, a message to reply to, a failed agent, and below them the agents still running">
+        <img src="docs/images/inbox-light.png" width="400" alt="The Inbox tab: a review ready to post with Post, Dismiss and Preview, a reviewer's permission prompt with Approve and Deny, a question, an agent's checkout form waiting on your review with Open and its answers, a message to reply to, a failed agent, and below them the agents still running">
       </picture>
     </td>
     <td valign="top">
@@ -152,6 +153,7 @@ renames it, on the phone and in the Mac app.
 | `start [--on HOST] [--codex] [-C DIR] [--name N] [-s SESSION] [PROMPT\|-]` | Start Claude Code (or Codex) in a new tab, here or on another Rex host. |
 | `hosts` | The machines the hub follows, and whether each is reachable. |
 | `hooks [install\|remove]` | The agents' Stop hooks, which put what an agent said when it finished on its Finished item. |
+| `skill [install\|remove]` | The rex-inbox skill, which teaches Claude Code and Codex to message, reach you, and share what they serve. `up` installs it; a copy you've made your own (without its marker line) only `skill install` replaces. |
 | `rpc [REQUEST]` | Answer one request from this machine's hub (what `inbox_rpc` runs). |
 | `send --to NAME [--subject S] TEXT\|-` | Message an agent's pane (`reviewer`, `session/pane`, a block id) or `me`. |
 | `reply N TEXT\|-` | Answer a message; it goes to the other side. |
@@ -166,6 +168,11 @@ renames it, on the phone and in the Mac app.
 An agent that runs something for you to look at (a dev server, a local
 stack) can share it instead of sending a localhost link you can't open
 from your phone:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/phone-review-dark.png">
+  <img src="docs/images/phone-review-light.png" width="260" align="right" alt="A preview on the phone under Needs you: frontend's checkout form, wanting your review, with Looks right, Needs work, Open, Reply and Done">
+</picture>
 
 ```sh
 rex-inbox share 5173 --title "Checkout form" \
@@ -189,6 +196,8 @@ runs `share --stop`; the item says which.
   requests away until `.ts.net` is in their `allowedHosts`.
 - Anyone on your tailnet can open a preview while it's up, the way
   `tailscale serve` works; the inbox itself answers only you.
+
+<br clear="right">
 
 ## Starting agents, on any machine
 
