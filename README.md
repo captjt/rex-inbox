@@ -53,6 +53,8 @@ rex-inbox hooks install   # agents say what they did when they finish
 mac/build.sh              # Rex Inbox.app, in ~/Applications
 ```
 
+With [just](https://github.com/casey/just), `just setup` does the same.
+
 With agents on other machines too, load rex-inbox's Rex action (see
 [Agents on other machines](#agents-on-other-machines)).
 
