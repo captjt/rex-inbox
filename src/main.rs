@@ -110,6 +110,10 @@ enum Cmd {
         to: String,
         #[arg(long, short)]
         subject: Option<String>,
+        /// An answer to offer as a button; repeat for more (up to 6). The
+        /// reply says which one was picked.
+        #[arg(long = "option", value_name = "ANSWER")]
+        options: Vec<String>,
         /// Send as the person, even from an agent's pane.
         #[arg(long)]
         as_me: bool,
@@ -119,9 +123,13 @@ enum Cmd {
     /// Answer a message: it goes to the other side of that conversation.
     Reply {
         id: i64,
+        /// Pick one of the message's options (its buttons).
+        #[arg(long, value_name = "ANSWER")]
+        choice: Option<String>,
         #[arg(long)]
         as_me: bool,
-        /// The answer; `-` (or nothing, when piped) reads stdin.
+        /// The answer; `-` (or nothing, when piped) reads stdin. With
+        /// --choice it's optional: the option is the answer.
         body: Option<String>,
     },
     /// Messages to this pane (or to you, outside an agent's pane).
@@ -334,13 +342,21 @@ async fn run(cli: Cli) -> Result<()> {
             show::inbox(&list(&v["alerts"]), &list(&v["messages"]));
             Ok(())
         }
-        Cmd::Send { to, subject, as_me, body: b } => {
-            let v = api::call("messages.send", json!({ "caller": caller(as_me), "to": to, "subject": subject, "body": body(b)? }))?;
+        Cmd::Send { to, subject, options, as_me, body: b } => {
+            let v = api::call(
+                "messages.send",
+                json!({ "caller": caller(as_me), "to": to, "subject": subject, "body": body(b)?, "options": options }),
+            )?;
             println!("{}", show::sent(&v));
             Ok(())
         }
-        Cmd::Reply { id, as_me, body: b } => {
-            let v = api::call("messages.reply", json!({ "caller": caller(as_me), "id": id, "body": body(b)? }))?;
+        Cmd::Reply { id, choice, as_me, body: b } => {
+            // A choice is an answer by itself: don't wait on stdin for more.
+            let b = match (&choice, b) {
+                (Some(_), None) => String::new(),
+                (_, b) => body(b)?,
+            };
+            let v = api::call("messages.reply", json!({ "caller": caller(as_me), "id": id, "body": b, "choice": choice }))?;
             println!("{}", show::sent(&v));
             Ok(())
         }

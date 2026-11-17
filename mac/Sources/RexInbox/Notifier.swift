@@ -3,8 +3,8 @@ import UserNotifications
 
 /// Notifications for what needs you, with the answer in the notification:
 /// Approve or Deny a Claude Code permission prompt, Post or Dismiss a review
-/// rex-reviewer has ready, Reply to a message, or Open the pane. While the
-/// app runs, the hub's own notifications stay quiet.
+/// rex-reviewer has ready, pick one of a message's options, Reply to it, or
+/// Open the pane. While the app runs, the hub's own notifications stay quiet.
 @MainActor
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     private weak var store: Store?
@@ -17,6 +17,11 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 
     private var categories: Set<UNNotificationCategory> = []
     private let openAction = UNNotificationAction(identifier: "open", title: "Open", options: [.foreground])
+    private let replyAction = UNTextInputNotificationAction(
+        identifier: "reply", title: "Reply", options: [],
+        textInputButtonTitle: "Send", textInputPlaceholder: "Your answer")
+    /// A message option's action is named by its label, after this.
+    private let choicePrefix = "choice:"
 
     /// A category for a set of answers, named by them, so a notification's
     /// buttons say what the hub says (Approve, or Post).
@@ -33,16 +38,13 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         guard available else { return }
         let center = UNUserNotificationCenter.current()
         center.delegate = self
-        let reply = UNTextInputNotificationAction(
-            identifier: "reply", title: "Reply", options: [],
-            textInputButtonTitle: "Send", textInputPlaceholder: "Your answer")
         // The answers the hub offers today, registered up front so the first
         // notification has its buttons. Others are added as they turn up.
         categories = [
             category([Answer(action: "approve", label: "Approve"), Answer(action: "deny", label: "Deny")]),
             category([Answer(action: "approve", label: "Post"), Answer(action: "deny", label: "Dismiss")]),
             UNNotificationCategory(identifier: "alert", actions: [openAction], intentIdentifiers: []),
-            UNNotificationCategory(identifier: "message", actions: [reply, openAction], intentIdentifiers: []),
+            UNNotificationCategory(identifier: "message", actions: [replyAction, openAction], intentIdentifiers: []),
         ]
         center.setNotificationCategories(categories)
         center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
@@ -86,7 +88,20 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     }
 
     private func categoryID(_ answers: [Answer]) -> String {
-        let c = category(answers)
+        register(category(answers))
+    }
+
+    /// A message's category: a button for each of its options, then Reply
+    /// and Open.
+    private func categoryID(options: [String]) -> String {
+        guard !options.isEmpty else { return "message" }
+        let actions = options.map { UNNotificationAction(identifier: choicePrefix + $0, title: $0, options: []) }
+        let id = "choices:" + options.joined(separator: "\u{1F}")
+        return register(UNNotificationCategory(identifier: id, actions: actions + [replyAction, openAction], intentIdentifiers: []))
+    }
+
+    /// Add a category the first time it's used; its identifier.
+    private func register(_ c: UNNotificationCategory) -> String {
         if !categories.contains(where: { $0.identifier == c.identifier }) {
             categories.insert(c)
             UNUserNotificationCenter.current().setNotificationCategories(categories)
@@ -101,7 +116,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         content.body = m.body
         content.sound = .default
         content.threadIdentifier = "thread-\(m.threadId)"
-        content.categoryIdentifier = "message"
+        content.categoryIdentifier = categoryID(options: m.choices)
         content.userInfo = ["id": m.id]
         deliver(m.id, content)
     }
@@ -146,6 +161,9 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
                         await store.reply(id, text)
                     }
                 case UNNotificationDismissActionIdentifier: break
+                case let a where a.hasPrefix(self.choicePrefix):
+                    let option = String(a.dropFirst(self.choicePrefix.count))
+                    await store.reply(id, option, choice: option)
                 default: await store.open(id)
                 }
             }

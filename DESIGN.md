@@ -87,8 +87,15 @@ ends up with it.
 - **Addresses**: `me` is you. An agent is a pane: its label within the
   sender's session (`reviewer`), `session/pane`, `host:session/pane`, or a
   block id. Ambiguous labels are an error that lists the candidates.
-- **Sending**: `rex-inbox send --to reviewer|me [--subject …] [--reply-to N] body|-`.
+- **Sending**: `rex-inbox send --to reviewer|me [--subject …] [--option …] body|-`.
   The sender's address comes from `REX_SESSION` and `REX_BLOCK`.
+- **Options**: a message can offer up to six answers (`options`, a JSON
+  column). A reply can pick one (`reply N --choice …`, the `choice` column),
+  checked against the message's options or its preview's. The apps show
+  them as buttons, the way they show a preview's. A button replies with its
+  label as the choice, and the reply box's words (or the label) as the
+  body. A reply whose words are an option picks it too. Whoever asked reads
+  `choice`, not the words.
 - **Delivery to agents**: messages queue in the hub. A message is delivered
   into the recipient's pane when the pane's root record is `idle` or `done`
   and its app is a known agent (`claude-code`, `codex`). Never into a plain
@@ -128,7 +135,7 @@ rex-reviewer" below). There is no TUI.
    - The Agents tab lists every agent pane by session: click one to open
      it in Rex, or message it.
    - Notifications carry the answer: Approve and Deny for a Claude Code
-     prompt, Reply for a message, Open for the rest. They are withdrawn once
+     prompt, a message's options and Reply, Open for the rest. They are withdrawn once
      the item no longer needs you.
    - While the app is connected, the hub's own osascript notifications stay
      quiet.

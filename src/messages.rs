@@ -1,4 +1,9 @@
 //! Messages between agents, and between agents and you.
+//!
+//! A message can offer answers, as buttons: `send --option Approve --option
+//! Wait`. The reply that answers it says which one it picks (`choice`), so
+//! whoever asked reads the answer without parsing the reply's words. A
+//! preview's answers work the same way (see preview.rs).
 
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Value, json};
@@ -72,6 +77,55 @@ fn is_for(m: &Message, who: &End) -> bool {
     }
 }
 
+/// The most answers a message can offer: as many as fit on a phone's card
+/// and in a notification's menu.
+const MAX_OPTIONS: usize = 6;
+
+/// The answers a message offers, from `send`'s `options`: trimmed, without
+/// blanks or repeats (in any case), in the order given.
+fn options(v: &Value) -> Result<Vec<String>> {
+    if !v.is_null() && !v.is_array() {
+        bail!("options is a list of answers, such as [\"Approve\", \"Wait\"]");
+    }
+    let mut out: Vec<String> = Vec::new();
+    for o in v.as_array().into_iter().flatten() {
+        let o = o.as_str().ok_or_else(|| anyhow!("an option is text, not {o}"))?.trim();
+        if !o.is_empty() && !out.iter().any(|x| x.to_lowercase() == o.to_lowercase()) {
+            out.push(o.to_string());
+        }
+    }
+    if out.len() > MAX_OPTIONS {
+        bail!("a message offers at most {MAX_OPTIONS} options, not {}; ask about fewer, or leave them to the reply", out.len());
+    }
+    Ok(out)
+}
+
+/// The option of `orig` that `choice` names, as `orig` spells it. Case
+/// doesn't matter, so `--choice approve` picks "Approve".
+fn pick(orig: &Message, choice: &str) -> Result<String> {
+    let offered = orig.offered();
+    if offered.is_empty() {
+        bail!("#{} offers no options to choose from; reply without a choice", orig.id);
+    }
+    let found = offered.iter().find(|o| *o == choice).or_else(|| offered.iter().find(|o| o.to_lowercase() == choice.to_lowercase()));
+    match found {
+        Some(o) => Ok(o.clone()),
+        None => {
+            let valid: Vec<String> = offered.iter().map(|o| format!("\"{o}\"")).collect();
+            bail!("\"{choice}\" isn't one of #{}'s options: {}", orig.id, valid.join(", "))
+        }
+    }
+}
+
+/// The option a reply picks: the one it names, or, when it names none, the
+/// option its words are (typing "approve" in the reply box picks Approve).
+fn choice_of(orig: &Message, choice: Option<&str>, body: &str) -> Result<Option<String>> {
+    match choice.map(str::trim).filter(|c| !c.is_empty()) {
+        Some(c) => pick(orig, c).map(Some),
+        None => Ok(pick(orig, body.trim()).ok()),
+    }
+}
+
 fn emit_new(core: &Core, m: &Message) -> Result<()> {
     core.store.log("message", &json!({ "id": m.id, "from": m.from_addr, "to": m.to_addr }))?;
     core.emit(HubEvent::MessageNew { message: m.clone() });
@@ -84,6 +138,8 @@ pub fn emit_updated(core: &Core, m: Option<Message>) {
     }
 }
 
+/// Store a new message. The caller sets what else it carries (its options,
+/// or the choice it makes), then tells the apps with `emit_new`.
 fn send(core: &Core, from: &End, to: &End, subject: Option<&str>, body: &str, reply_to: Option<i64>) -> Result<Message> {
     if body.trim().is_empty() {
         bail!("the message is empty");
@@ -91,9 +147,7 @@ fn send(core: &Core, from: &End, to: &End, subject: Option<&str>, body: &str, re
     if from.block.is_some() && from.block == to.block && from.host == to.host {
         bail!("that's your own pane");
     }
-    let m = core.store.insert_message(from, to, subject, body, reply_to)?;
-    emit_new(core, &m)?;
-    Ok(m)
+    core.store.insert_message(from, to, subject, body, reply_to)
 }
 
 pub async fn dispatch(shared: &Shared, method: &str, params: &Value) -> Result<Value> {
@@ -137,6 +191,7 @@ pub async fn dispatch(shared: &Shared, method: &str, params: &Value) -> Result<V
             let body = params["body"].as_str().unwrap_or_default();
             let subject = params["subject"].as_str().filter(|s| !s.is_empty());
             let to = params["to"].as_str().ok_or_else(|| anyhow!("to is required"))?;
+            let options = options(&params["options"])?;
             let mut core = shared.lock();
             let from = caller.end(&core);
             let to_end = if to == ME { address::me() } else { address::end_of(&core, address::resolve(&core, to, caller.near())?) };
@@ -149,7 +204,11 @@ pub async fn dispatch(shared: &Shared, method: &str, params: &Value) -> Result<V
             {
                 bail!("{to} is rex-reviewer's ({what}), so it takes no messages; open it in Rex instead");
             }
-            let m = send(&core, &from, &to_end, subject, body, None)?;
+            let mut m = send(&core, &from, &to_end, subject, body, None)?;
+            if !options.is_empty() {
+                m = core.store.set_options(m.id, &options)?.unwrap_or(m);
+            }
+            emit_new(&core, &m)?;
             Ok(serde_json::to_value(m)?)
         }
 
@@ -158,6 +217,12 @@ pub async fn dispatch(shared: &Shared, method: &str, params: &Value) -> Result<V
             let body = params["body"].as_str().unwrap_or_default();
             let core = shared.lock();
             let orig = core.store.message(id)?.ok_or_else(|| anyhow!("no message {id}"))?;
+            let choice = choice_of(&orig, params["choice"].as_str(), body)?;
+            // A choice alone says it all: its label is the reply.
+            let body = match &choice {
+                Some(c) if body.trim().is_empty() => c.as_str(),
+                _ => body,
+            };
             let from = caller.end(&core);
             // Answer the other party: the sender, unless you are the sender.
             let sent_it = match (&from.block, &orig.from_block) {
@@ -173,20 +238,26 @@ pub async fn dispatch(shared: &Shared, method: &str, params: &Value) -> Result<V
             let to = End { addr: addr.clone(), host: host.clone(), session: session.clone(), block: block.clone() };
             // The same answer twice in a moment is one tap too many (or one
             // on the Mac and one on the phone): the agent gets it once.
-            if let Some(dup) =
-                core.store.thread(orig.thread_id)?.into_iter().rev().find(|m| {
-                    m.reply_to == Some(id) && m.from_block == from.block && m.body.trim() == body.trim() && just_now(&m.created_at)
-                })
-            {
+            if let Some(dup) = core.store.thread(orig.thread_id)?.into_iter().rev().find(|m| {
+                m.reply_to == Some(id)
+                    && m.from_block == from.block
+                    && m.body.trim() == body.trim()
+                    && m.choice == choice
+                    && just_now(&m.created_at)
+            }) {
                 return Ok(serde_json::to_value(dup)?);
             }
             let subject = orig.subject.as_ref().map(|s| if s.starts_with("Re: ") { s.clone() } else { format!("Re: {s}") });
-            let m = send(&core, &from, &to, subject.as_deref(), body, Some(id))?;
+            let mut m = send(&core, &from, &to, subject.as_deref(), body, Some(id))?;
+            if let Some(c) = &choice {
+                m = core.store.set_choice(m.id, c)?.unwrap_or(m);
+            }
+            emit_new(&core, &m)?;
             // A preview remembers your answer, so it shows as given.
             if from.block.is_none()
                 && let Some(mut p) = orig.preview.clone()
             {
-                p["answer"] = json!(body.trim());
+                p["answer"] = json!(choice.as_deref().unwrap_or(body.trim()));
                 p["answered_at"] = json!(m.created_at);
                 emit_updated(&core, core.store.set_preview(orig.id, &p)?);
             }
@@ -302,4 +373,122 @@ async fn wait(shared: &Shared, caller: &Caller, params: &Value) -> Result<Value>
     let fresh = core.store.mark_read(&found)?;
     emit_updated(&core, fresh.clone());
     Ok(json!({ "message": fresh.unwrap_or(found) }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mirror::Record;
+
+    /// A hub with one pane, `b1`, whose program reports as `app`.
+    fn hub_with(app: &str) -> Shared {
+        let shared = Shared::for_tests();
+        let r = Record { state: "idle".into(), app: Some(app.into()), ..Default::default() };
+        shared.lock().hosts.get_mut("local").unwrap().apply_pane_status("s1", "b1", vec![r], None, None);
+        shared
+    }
+
+    fn from_pane(mut params: Value) -> Value {
+        params["caller"] = json!({ "session_id": "s1", "block_id": "b1" });
+        params
+    }
+
+    fn as_me(mut params: Value) -> Value {
+        params["caller"] = json!({ "as_me": true });
+        params
+    }
+
+    async fn call(shared: &Shared, method: &str, params: Value) -> Result<Value> {
+        dispatch(shared, method, &params).await
+    }
+
+    #[test]
+    fn options_are_trimmed_kept_once_and_few() {
+        let o = options(&json!([" Approve ", "", "Wait", "approve", "  "])).unwrap();
+        assert_eq!(o, ["Approve", "Wait"]);
+        assert!(options(&Value::Null).unwrap().is_empty());
+        assert_eq!(options(&json!(["1", "2", "3", "4", "5", "6"])).unwrap().len(), MAX_OPTIONS);
+        let e = options(&json!(["1", "2", "3", "4", "5", "6", "7"])).unwrap_err().to_string();
+        assert!(e.contains("at most 6"), "{e}");
+        assert!(options(&json!("Approve")).is_err());
+        assert!(options(&json!([1])).is_err());
+    }
+
+    #[tokio::test]
+    async fn a_reply_picks_one_of_the_messages_options() {
+        let hub = hub_with("claude-code");
+        let ask = json!({ "to": "me", "subject": "PR 12", "body": "Merge it?", "options": ["Merge", " Wait ", "merge"] });
+        let m = call(&hub, "messages.send", from_pane(ask)).await.unwrap();
+        assert_eq!(m["options"], json!(["Merge", "Wait"]));
+        assert_eq!(m["choice"], Value::Null);
+        let id = m["id"].as_i64().unwrap();
+
+        let e = call(&hub, "messages.reply", as_me(json!({ "id": id, "body": "", "choice": "Maybe" }))).await.unwrap_err();
+        assert_eq!(e.to_string(), format!("\"Maybe\" isn't one of #{id}'s options: \"Merge\", \"Wait\""));
+
+        // A choice alone is the answer; its case is the message's.
+        let r = call(&hub, "messages.reply", as_me(json!({ "id": id, "body": "  ", "choice": "wait" }))).await.unwrap();
+        assert_eq!((r["choice"].as_str(), r["body"].as_str()), (Some("Wait"), Some("Wait")));
+        assert_eq!((r["reply_to"].as_i64(), r["to_block"].as_str(), r["status"].as_str()), (Some(id), Some("b1"), Some("queued")));
+        assert_eq!(hub.lock().store.message(id).unwrap().unwrap().status, "done", "answered, it's filed");
+
+        // Words with it are kept.
+        let r = call(&hub, "messages.reply", as_me(json!({ "id": id, "body": "after the tests", "choice": "Merge" }))).await.unwrap();
+        assert_eq!((r["choice"].as_str(), r["body"].as_str()), (Some("Merge"), Some("after the tests")));
+    }
+
+    #[tokio::test]
+    async fn a_reply_that_says_an_option_picks_it() {
+        let hub = hub_with("claude-code");
+        let m = call(&hub, "messages.send", from_pane(json!({ "to": "me", "body": "Merge it?", "options": ["Merge", "Wait"] }))).await;
+        let id = m.unwrap()["id"].as_i64().unwrap();
+        let r = call(&hub, "messages.reply", as_me(json!({ "id": id, "body": "merge " }))).await.unwrap();
+        assert_eq!(r["choice"], "Merge");
+        let r = call(&hub, "messages.reply", as_me(json!({ "id": id, "body": "merge it tomorrow" }))).await.unwrap();
+        assert_eq!(r["choice"], Value::Null);
+    }
+
+    #[tokio::test]
+    async fn a_choice_needs_options_to_choose_from() {
+        let hub = hub_with("claude-code");
+        let m = call(&hub, "messages.send", from_pane(json!({ "to": "me", "body": "Done with the migration" }))).await.unwrap();
+        assert_eq!(m["options"], json!([]));
+        let id = m["id"].as_i64().unwrap();
+        let e = call(&hub, "messages.reply", as_me(json!({ "id": id, "choice": "Approve" }))).await.unwrap_err();
+        assert!(e.to_string().contains("offers no options"), "{e}");
+        let e = call(&hub, "messages.send", from_pane(json!({ "to": "me", "body": "?", "options": ["1", "2", "3", "4", "5", "6", "7"] })));
+        assert!(e.await.is_err());
+    }
+
+    #[tokio::test]
+    async fn answering_a_preview_with_a_button_is_a_choice_too() {
+        let hub = hub_with("claude-code");
+        let id = {
+            let core = hub.lock();
+            let from = End { addr: "s1/b1".into(), host: Some("local".into()), session: Some("s1".into()), block: Some("b1".into()) };
+            let m = core.store.insert_message(&from, &address::me(), Some("Checkout form"), "Does it read right?", None).unwrap();
+            let p =
+                json!({ "url": "https://mac.tail1.ts.net:7431/", "port": 5173, "options": ["Looks right", "Needs work"], "state": "live" });
+            core.store.set_preview(m.id, &p).unwrap();
+            m.id
+        };
+        let e = call(&hub, "messages.reply", as_me(json!({ "id": id, "choice": "Approve" }))).await.unwrap_err();
+        assert!(e.to_string().contains("\"Looks right\", \"Needs work\""), "{e}");
+        let r = call(&hub, "messages.reply", as_me(json!({ "id": id, "body": "the button's off", "choice": "Needs work" }))).await.unwrap();
+        assert_eq!((r["choice"].as_str(), r["body"].as_str()), (Some("Needs work"), Some("the button's off")));
+        let p = hub.lock().store.message(id).unwrap().unwrap().preview.unwrap();
+        assert_eq!(p["answer"], "Needs work", "the preview shows the button you pressed");
+    }
+
+    #[tokio::test]
+    async fn the_same_words_with_another_choice_are_another_answer() {
+        let hub = hub_with("claude-code");
+        let m = call(&hub, "messages.send", from_pane(json!({ "to": "me", "body": "Merge it?", "options": ["Merge", "Wait"] }))).await;
+        let id = m.unwrap()["id"].as_i64().unwrap();
+        let a = call(&hub, "messages.reply", as_me(json!({ "id": id, "body": "ok", "choice": "Merge" }))).await.unwrap();
+        let again = call(&hub, "messages.reply", as_me(json!({ "id": id, "body": "ok", "choice": "Merge" }))).await.unwrap();
+        assert_eq!(a["id"], again["id"], "a second tap is the same answer");
+        let other = call(&hub, "messages.reply", as_me(json!({ "id": id, "body": "ok", "choice": "Wait" }))).await.unwrap();
+        assert_ne!(a["id"], other["id"]);
+    }
 }

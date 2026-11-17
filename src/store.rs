@@ -59,7 +59,9 @@ CREATE TABLE IF NOT EXISTS messages (
   done_at TEXT,
   attempts INTEGER NOT NULL DEFAULT 0,
   error TEXT,
-  preview TEXT                       -- JSON: an app the sender serves (preview.rs)
+  preview TEXT,                      -- JSON: an app the sender serves (preview.rs)
+  options TEXT,                      -- JSON: the answers it offers, as buttons
+  choice TEXT                        -- the option a reply picks
 );
 CREATE INDEX IF NOT EXISTS messages_to ON messages(to_addr, status);
 CREATE INDEX IF NOT EXISTS messages_block ON messages(to_host, to_block, status);
@@ -206,11 +208,24 @@ pub struct Message {
     /// An app the sender serves for you to look at (see preview.rs): where
     /// it is, the answers it offers, and whether it's still up.
     pub preview: Option<serde_json::Value>,
+    /// The answers it offers, as buttons. Empty for most messages.
+    pub options: Vec<String>,
+    /// For a reply: the option it picks, from the message it answers.
+    pub choice: Option<String>,
 }
 
 impl Message {
     pub fn to_me(&self) -> bool {
         self.to_block.is_none()
+    }
+
+    /// The answers it offers: its own, or its preview's.
+    pub fn offered(&self) -> Vec<String> {
+        if !self.options.is_empty() {
+            return self.options.clone();
+        }
+        let preview = self.preview.as_ref().and_then(|p| p["options"].as_array());
+        preview.map(|a| a.iter().filter_map(|o| o.as_str()).map(str::to_string).collect()).unwrap_or_default()
     }
 
     /// A preview you haven't answered: the agent waits on your review.
@@ -234,7 +249,7 @@ pub struct End {
 }
 
 const MESSAGE_COLS: &str = "id, thread_id, reply_to, from_addr, from_host, from_session, from_block, to_addr, to_host, \
-     to_session, to_block, subject, body, status, created_at, delivered_at, read_at, done_at, attempts, error, preview";
+     to_session, to_block, subject, body, status, created_at, delivered_at, read_at, done_at, attempts, error, preview, options, choice";
 
 fn message_row(r: &Row) -> rusqlite::Result<Message> {
     Ok(Message {
@@ -259,6 +274,8 @@ fn message_row(r: &Row) -> rusqlite::Result<Message> {
         attempts: r.get(18)?,
         error: r.get(19)?,
         preview: r.get::<_, Option<String>>(20)?.and_then(|s| serde_json::from_str(&s).ok()),
+        options: r.get::<_, Option<String>>(21)?.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default(),
+        choice: r.get(22)?,
     })
 }
 
@@ -266,15 +283,15 @@ pub struct Store {
     conn: Connection,
 }
 
-/// Bring a database made by an older hub up to date.
+/// Bring a database made by an older hub up to date: add the columns it
+/// lacks. New columns are nullable, so its rows read as before.
 fn migrate(conn: &Connection) -> Result<()> {
-    let has_subject = conn.prepare("SELECT 1 FROM pragma_table_info('alerts') WHERE name = 'subject'")?.exists([])?;
-    if !has_subject {
-        conn.execute_batch("ALTER TABLE alerts ADD COLUMN subject TEXT")?;
-    }
-    let has_preview = conn.prepare("SELECT 1 FROM pragma_table_info('messages') WHERE name = 'preview'")?.exists([])?;
-    if !has_preview {
-        conn.execute_batch("ALTER TABLE messages ADD COLUMN preview TEXT")?;
+    let added = [("alerts", "subject"), ("messages", "preview"), ("messages", "options"), ("messages", "choice")];
+    for (table, column) in added {
+        let has = conn.prepare(&format!("SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?1"))?.exists([column])?;
+        if !has {
+            conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} TEXT"))?;
+        }
     }
     Ok(())
 }
@@ -286,9 +303,19 @@ impl Store {
         }
         let conn = Connection::open(path).with_context(|| format!("opening {}", path.display()))?;
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;")?;
+        Self::with(conn)
+    }
+
+    fn with(conn: Connection) -> Result<Self> {
         conn.execute_batch(SCHEMA)?;
         migrate(&conn)?;
         Ok(Store { conn })
+    }
+
+    /// A store that lives in memory, for tests.
+    #[cfg(test)]
+    pub fn memory() -> Self {
+        Self::with(Connection::open_in_memory().expect("in-memory database")).expect("schema")
     }
 
     pub(crate) fn conn_ref(&self) -> &Connection {
@@ -502,6 +529,17 @@ impl Store {
         self.set_message(id, "preview = ?2", &[&v])
     }
 
+    /// The answers a message offers, as buttons.
+    pub fn set_options(&self, id: i64, options: &[String]) -> Result<Option<Message>> {
+        let v = serde_json::to_string(options)?;
+        self.set_message(id, "options = ?2", &[&v])
+    }
+
+    /// The option a reply picks.
+    pub fn set_choice(&self, id: i64, choice: &str) -> Result<Option<Message>> {
+        self.set_message(id, "choice = ?2", &[&choice])
+    }
+
     /// Previews still being served.
     pub fn live_previews(&self) -> Result<Vec<Message>> {
         self.messages_where("preview IS NOT NULL AND json_extract(preview, '$.state') = 'live'", [])
@@ -547,5 +585,39 @@ impl Store {
     pub fn mark_done(&self, id: i64) -> Result<Option<Message>> {
         let t = now();
         self.set_message(id, "status = CASE WHEN to_block IS NULL THEN 'done' ELSE 'cancelled' END, done_at = ?2", &[&t])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_older_database_gains_options_and_choices() {
+        let conn = Connection::open_in_memory().unwrap();
+        // The messages table as 0.4 made it: no options, no choice.
+        conn.execute_batch(
+            "CREATE TABLE messages (id INTEGER PRIMARY KEY, thread_id INTEGER NOT NULL, reply_to INTEGER, \
+             from_addr TEXT NOT NULL, from_host TEXT, from_session TEXT, from_block TEXT, to_addr TEXT NOT NULL, \
+             to_host TEXT, to_session TEXT, to_block TEXT, subject TEXT, body TEXT NOT NULL, status TEXT NOT NULL, \
+             created_at TEXT NOT NULL, delivered_at TEXT, read_at TEXT, done_at TEXT, attempts INTEGER NOT NULL DEFAULT 0, \
+             error TEXT, preview TEXT);
+             INSERT INTO messages (id, thread_id, from_addr, to_addr, body, status, created_at) \
+             VALUES (100, 100, 'inbox/claude', 'me', 'Before options', 'unread', '2026-11-01T00:00:00Z');",
+        )
+        .unwrap();
+        let store = Store::with(conn).unwrap();
+        let old = store.message(100).unwrap().unwrap();
+        assert!(old.options.is_empty() && old.choice.is_none(), "its rows read as before");
+
+        let agent = End { addr: "inbox/claude".into(), host: Some("local".into()), session: Some("s".into()), block: Some("b".into()) };
+        let m = store.insert_message(&agent, &crate::address::me(), None, "Merge it?", None).unwrap();
+        let m = store.set_options(m.id, &["Merge".into(), "Wait".into()]).unwrap().unwrap();
+        assert_eq!(m.options, ["Merge", "Wait"]);
+        let r = store.insert_message(&crate::address::me(), &agent, None, "Wait", Some(m.id)).unwrap();
+        assert_eq!(store.set_choice(r.id, "Wait").unwrap().unwrap().choice.as_deref(), Some("Wait"));
+        // Opening it again changes nothing.
+        let again = Store::with(store.conn).unwrap();
+        assert_eq!(again.message(m.id).unwrap().unwrap().options, ["Merge", "Wait"]);
     }
 }

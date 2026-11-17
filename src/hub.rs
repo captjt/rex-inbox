@@ -89,6 +89,28 @@ impl Shared {
     }
 }
 
+#[cfg(test)]
+impl Shared {
+    /// A hub for tests: a store in memory, one host (`local`) with no
+    /// panes yet, and no Rex to call.
+    pub fn for_tests() -> Self {
+        let (events, _) = broadcast::channel(256);
+        Shared(Arc::new(Mutex::new(Core {
+            store: Store::memory(),
+            hosts: BTreeMap::from([("local".to_string(), HostMirror { connected: true, ..HostMirror::new("local") })]),
+            rexes: BTreeMap::new(),
+            events,
+            started_at: time::now(),
+            notifiers: 0,
+            owner: None,
+            web_url: None,
+            reviewer: crate::reviewer::Ledger::new(std::env::temp_dir().join("rex-inbox-no-ledger-here")),
+            fleet: Arc::new(tokio::sync::Notify::new()),
+            agents_seen: BTreeMap::new(),
+        })))
+    }
+}
+
 impl Core {
     pub fn emit(&self, e: HubEvent) {
         let _ = self.events.send(e);

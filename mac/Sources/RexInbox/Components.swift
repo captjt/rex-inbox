@@ -278,6 +278,13 @@ struct MessageCard: View {
                 }
                 if let p = message.preview {
                     previewRow(p, busy: busy)
+                } else if let options = message.options, !options.isEmpty {
+                    Flow(spacing: 8) {
+                        ForEach(options, id: \.self) { option in
+                            Button(option) { choose(option) }
+                        }
+                    }
+                    .disabled(busy)
                 }
                 if replying {
                     HStack(alignment: .bottom, spacing: 8) {
@@ -335,7 +342,7 @@ struct MessageCard: View {
                         .foregroundStyle(.green).font(.callout.weight(.medium))
                 } else {
                     ForEach(p.options ?? [], id: \.self) { option in
-                        Button(option) { Task { await store.reply(message.id, option) } }
+                        Button(option) { choose(option) }
                     }
                 }
                 Spacer()
@@ -353,6 +360,15 @@ struct MessageCard: View {
         draft = ""
         replying = false
         Task { await store.reply(message.id, text) }
+    }
+
+    /// Answer with one of the sender's options, and the reply box's words
+    /// with it, if there are any.
+    private func choose(_ option: String) {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        draft = ""
+        replying = false
+        Task { await store.reply(message.id, text.isEmpty ? option : text, choice: option) }
     }
 }
 

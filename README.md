@@ -95,7 +95,7 @@ app shows in the Dock while that window is open. The ＋ starts an agent
   other machine's; click one to open it, or message it. A finished agent
   shows what it said last.
 - **Notifications** carry the answer: Approve and Deny, Post and Dismiss
-  for a review, or Reply.
+  for a review, a message's options, or Reply.
 
 `RexInbox --snapshot out.png [--tab agents] [--window | --new-agent]`
 renders the panel (or the window, or the New Agent form) to a PNG without
@@ -157,13 +157,31 @@ renames it, on the phone and in the Mac app.
 | `hooks [install\|remove]` | The agents' Stop hooks, which put what an agent said when it finished on its Finished item. |
 | `skill [install\|remove]` | The rex-inbox skill, which teaches Claude Code and Codex to message, reach you, and share what they serve. `up` installs it; a copy you've made your own (without its marker line) only `skill install` replaces. |
 | `rpc [REQUEST]` | Answer one request from this machine's hub (what `inbox_rpc` runs). |
-| `send --to NAME [--subject S] TEXT\|-` | Message an agent's pane (`reviewer`, `session/pane`, a block id) or `me`. |
-| `reply N TEXT\|-` | Answer a message; it goes to the other side. |
+| `send --to NAME [--subject S] [--option A]... TEXT\|-` | Message an agent's pane (`reviewer`, `session/pane`, a block id) or `me`, with answers to pick from as buttons (see [Options](#options)). |
+| `reply N [--choice A] [TEXT\|-]` | Answer a message; it goes to the other side. `--choice` picks one of its options. |
 | `inbox`, `read N`, `wait [--thread N] [--timeout S]` | An agent's own messages. |
 | `share PORT [--title T] [--ask Q] [--option A]...`, `share --stop [PORT]` | Show you an app the agent serves on this Mac, on your tailnet (see [Previews](#previews)). |
 | `name NAME`, `whoami` | Name this pane so others can reach it. |
 | `web` | The phone web app's address, and how to publish it. |
 | `status`, `watch`, `up`, `down`, `logs` | The hub. |
+
+## Options
+
+A message can offer its answers as buttons, so a decision is one tap:
+
+```sh
+rex-inbox send --to me --subject "PR #12" --option Merge --option Wait \
+  "Tests pass and the review is clean. I'd merge."
+```
+
+The buttons show on the message in the Mac app, its notification, and the
+phone, beside Reply. Pressing one answers with it, along with anything
+you typed in the reply box, and files the message, as answering a preview
+does. Your reply says which you picked: `"choice": "Merge"` in
+`rex-inbox inbox --json` and `read --json`, so the sender doesn't have to
+read it out of your words. Typing an option word for word picks it too.
+From a terminal, `rex-inbox reply 12 --choice Merge`. A message offers up
+to six.
 
 ## Previews
 
