@@ -88,7 +88,9 @@ ends up with it.
   sender's session (`reviewer`), `session/pane`, `host:session/pane`, or a
   block id. Ambiguous labels are an error that lists the candidates.
 - **Sending**: `rex-inbox send --to reviewer|me [--subject …] [--option …] body|-`.
-  The sender's address comes from `REX_SESSION` and `REX_BLOCK`.
+  The sender's address comes from `REX_SESSION` and `REX_BLOCK`. A pane
+  whose program reports status to Rex sends as itself: an agent, or a tool
+  such as rex-develop. A plain shell reports nothing, and sends as you.
 - **Options**: a message can offer up to six answers (`options`, a JSON
   column). A reply can pick one (`reply N --choice …`, the `choice` column),
   checked against the message's options or its preview's. The apps show
@@ -102,7 +104,9 @@ ends up with it.
   shell, where typed text would run as a command. Delivery is a paste event
   plus Enter, the same as `rex-agent prompt`. The pasted text is a short
   notice with the message (or a pointer, `rex-inbox read N`, when it is long).
-  Agents can also pull: `rex-inbox inbox`, `read N`, `wait`.
+  Agents can also pull: `rex-inbox inbox`, `read N`, `wait`. A tool's pane
+  is never typed into, so it always pulls: `inbox --json` lists what it
+  hasn't read, and `read N` or `wait` marks a message read.
 - **Messages to `me`** show in the inbox beside alerts and raise a Mac
   notification. Your reply is delivered into the sender's pane the same way.
 
