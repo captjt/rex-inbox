@@ -445,7 +445,7 @@ private extension View {
 }
 
 /// Lays out its views in rows, wrapping when a row is full.
-private struct Flow: Layout {
+struct Flow: Layout {
     var spacing: CGFloat = 8
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {

@@ -124,8 +124,15 @@ pub fn render(m: &Message) -> String {
     if let Some(s) = &m.subject {
         out.push_str(&format!("\nSubject: {s}"));
     }
+    if let Some(c) = m.choice.as_ref().filter(|c| c.as_str() != m.body.trim()) {
+        out.push_str(&format!("\nChose: {c}"));
+    }
     out.push_str("\n\n");
     out.push_str(m.body.trim_end());
+    if let Some(first) = m.options.first() {
+        out.push_str(&format!("\n\nOptions: {}", m.options.join(" · ")));
+        out.push_str(&format!("\nPick one with `rex-inbox reply {} --choice \"{first}\"`, and add words if you like.", m.id));
+    }
     out.push_str(&format!("\n\nReply with `rex-inbox reply {} \"...\"` (or `rex-inbox reply {} -` with the text on stdin).", m.id, m.id));
     if remote {
         out.push_str(" If rex-inbox isn't installed on this machine, answer here instead: the sender reads this pane.");
@@ -204,6 +211,8 @@ mod tests {
             attempts: 0,
             error: None,
             preview: None,
+            options: Vec::new(),
+            choice: None,
         }
     }
 
@@ -218,5 +227,19 @@ mod tests {
         let long = "x\n".repeat(MAX_PASTE);
         assert!(render(&msg("local", &long)).contains("rex-inbox read 9"));
         assert!(render(&msg("studio", &long)).contains(long.trim_end()));
+    }
+
+    #[test]
+    fn an_agent_sees_the_options_it_can_pick_and_the_one_picked() {
+        let mut m = msg("local", "Merge it?");
+        m.options = vec!["Merge".into(), "Wait".into()];
+        let text = render(&m);
+        assert!(text.contains("Options: Merge · Wait"));
+        assert!(text.contains("rex-inbox reply 9 --choice \"Merge\""));
+        let mut r = msg("local", "Merge");
+        r.choice = Some("Merge".into());
+        assert!(!render(&r).contains("Chose:"), "the body already says it");
+        r.body = "After the tests pass".into();
+        assert!(render(&r).contains("Chose: Merge"));
     }
 }

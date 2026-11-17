@@ -503,20 +503,25 @@ function previewMeta(m) {
   return p.answer == null ? `Wants your review · port ${p.port}` : `Preview · port ${p.port}`;
 }
 
+// A message's options, as buttons: each answers with its label (see choose).
+function optionButtons(m, options, size = "") {
+  const busy = state.busy.has(m.id) ? "disabled" : "";
+  const opts = options
+    .map((o) => `<button class="btn wide ${size}" data-act="choose" data-id="${m.id}" data-value="${esc(o)}" ${busy}>${state.busy.get(m.id) === o ? '<span class="spin"></span>' : esc(o)}</button>`)
+    .join("");
+  return opts ? `<div class="actions options">${opts}</div>` : "";
+}
+
 // What a preview offers: Open while it's up, and the agent's answers.
 function previewActions(m, size = "") {
-  const busy = state.busy.has(m.id) ? "disabled" : "";
   // Answered: say what you said, rather than offering it again.
   const said = m.preview.answer
     ? `<div class="answered">${ic("check")}<span>You said “${esc(m.preview.answer)}”</span><span class="age">${age(m.preview.answered_at)}</span></div>`
     : "";
-  const opts = (said ? [] : m.preview.options || [])
-    .map((o) => `<button class="btn wide ${size}" data-act="preview-answer" data-id="${m.id}" data-value="${esc(o)}" ${busy}>${state.busy.get(m.id) === o ? '<span class="spin"></span>' : esc(o)}</button>`)
-    .join("");
   const open = previewLive(m)
     ? `<a class="btn wide primary ${size}" data-act="preview-open" href="${esc(m.preview.url)}" target="_blank" rel="noopener">${ic("globe")}Open</a>`
     : "";
-  return { opts: said || (opts ? `<div class="actions options">${opts}</div>` : ""), open };
+  return { opts: said || optionButtons(m, m.preview.options || [], size), open };
 }
 
 function previewCard(m) {
@@ -542,14 +547,19 @@ function previewCard(m) {
     </article>`);
 }
 
-async function previewAnswer(id, text) {
+// Answer with one of a message's options (or a preview's). The label is the
+// choice, and the reply box's words, if any, go with it.
+async function choose(id, label) {
   if (state.busy.has(id)) return;
-  state.busy.set(id, text);
+  const key = `m${id}`;
+  const words = (state.drafts[key] || "").trim();
+  state.busy.set(id, label);
   render();
   try {
-    await call("messages.reply", { id, body: text });
+    await call("messages.reply", { id, body: words || label, choice: label });
+    delete state.drafts[key];
     haptic();
-    toast(`Sent “${text}”`);
+    toast(`Sent “${label}”`);
     if (state.sheet?.type === "message" && state.sheet.id === id) closeSheet();
   } catch (e) {
     toast(e.message, true);
@@ -576,6 +586,7 @@ function messageCard(m) {
       </div>
       ${m.subject ? `<div class="subject">${esc(m.subject)}</div>` : ""}
       <div class="prose ${open ? "" : "clamp"}" data-clamp="${m.id}" ${m.subject ? 'style="margin-top:4px"' : ""}>${esc(m.body)}</div>
+      ${optionButtons(m, m.options || [])}
       <div class="actions">
         <button class="btn wide primary" data-act="reply" data-id="${m.id}">${ic("reply")}Reply</button>
         <button class="btn wide" data-act="done" data-id="${m.id}" ${busy}>${busyLabel(m.id, "done", "Done", "check")}</button>
@@ -733,6 +744,8 @@ function sheetHtml(s) {
     if (m.preview) {
       const { opts, open } = previewActions(m);
       extra = `<div class="meta" style="margin-top:10px">${esc(previewMeta(m))}</div>${previewLive(m) ? opts : ""}${open ? `<div class="actions">${open}</div>` : ""}`;
+    } else {
+      extra = optionButtons(m, m.options || []);
     }
     return `${sheetHead(m.preview ? "globe" : "mail", "t-blue", from, [`#${m.id}`, age(m.created_at, true)].join(" · "))}
       <div class="sheet-body">
@@ -1518,8 +1531,8 @@ document.addEventListener("click", async (e) => {
       return renameSession();
     case "preview-open":
       return; // the link opens it
-    case "preview-answer":
-      return previewAnswer(id, b.dataset.value);
+    case "choose":
+      return choose(id, b.dataset.value);
     case "pane-view":
       if (state.sheet?.type === "pane" && state.sheet.view !== b.dataset.value) {
         state.sheet.view = state.paneView = b.dataset.value;

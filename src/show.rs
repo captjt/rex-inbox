@@ -215,20 +215,39 @@ fn who(addr: &str) -> String {
 fn first_line(m: &Value) -> String {
     let subject = str(m, "subject");
     let body = str(m, "body").lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
-    let s = if subject.is_empty() { body.to_string() } else { subject.to_string() };
+    let s = match m["choice"].as_str() {
+        // A reply that picks an option leads with it, then any words of its own.
+        Some(c) if body.is_empty() || body == c => chose(c),
+        Some(c) => format!("{}: {body}", chose(c)),
+        None if subject.is_empty() => body.to_string(),
+        None => subject.to_string(),
+    };
     if s.chars().count() > 80 { format!("{}…", s.chars().take(79).collect::<String>()) } else { s }
+}
+
+fn chose(c: &str) -> String {
+    format!("chose \"{c}\"")
+}
+
+/// The answers a message offers as buttons: `Approve · Wait`.
+fn options(m: &Value) -> Option<String> {
+    let opts: Vec<&str> = m["options"].as_array().map(|a| a.iter().filter_map(|o| o.as_str()).collect()).unwrap_or_default();
+    (!opts.is_empty()).then(|| opts.join(" · "))
 }
 
 fn message_rows(list: &[Value], to_me: bool) {
     let rows: Vec<Vec<String>> = list
         .iter()
-        .map(|m| {
+        .flat_map(|m| {
             let peer = if to_me || str(m, "to_addr") == "me" || m["to_block"].is_null() {
                 format!("from {}", who(str(m, "from_addr")))
             } else {
                 format!("from {} to {}", who(str(m, "from_addr")), who(str(m, "to_addr")))
             };
-            vec![format!("#{}", m["id"]), str(m, "status").to_string(), peer, age(str(m, "created_at")), first_line(m)]
+            let row = vec![format!("#{}", m["id"]), str(m, "status").to_string(), peer, age(str(m, "created_at")), first_line(m)];
+            // Its options go under it, below what it says.
+            let under = options(m).map(|o| vec![String::new(), String::new(), String::new(), String::new(), dim(&format!("options: {o}"))]);
+            std::iter::once(row).chain(under)
         })
         .collect();
     table(&rows, "  ");
@@ -248,13 +267,18 @@ pub fn sent(m: &Value) -> String {
         "queued" => "queued; it goes in when the agent is idle",
         _ => "sent",
     };
-    format!("#{} to {to}: {how}", m["id"])
+    let chose = m["choice"].as_str().map(|c| format!("{}, ", chose(c))).unwrap_or_default();
+    let offers = options(m).map(|o| format!(", offering {o}")).unwrap_or_default();
+    format!("#{} to {to}: {chose}{how}{offers}", m["id"])
 }
 
 pub fn message(m: &Value) {
     let mut head = format!("#{} from {} to {}", m["id"], who(str(m, "from_addr")), who(str(m, "to_addr")));
     if let Some(r) = m["reply_to"].as_i64() {
         head.push_str(&format!(", replying to #{r}"));
+    }
+    if let Some(c) = m["choice"].as_str() {
+        head.push_str(&format!(", {}", chose(c)));
     }
     println!("{}  {}", bold(&head), dim(&format!("{} ago, {}", age(str(m, "created_at")), str(m, "status"))));
     if let Some(s) = m["subject"].as_str() {
@@ -273,6 +297,11 @@ pub fn message(m: &Value) {
     }
     println!();
     println!("{}", str(m, "body").trim_end());
+    if let (Some(o), Some(first)) = (options(m), m["options"][0].as_str()) {
+        println!();
+        println!("Options: {o}");
+        println!("{}", dim(&format!("pick one: rex-inbox reply {} --choice \"{first}\"", m["id"])));
+    }
 }
 
 pub fn thread(m: &Value, thread: &[Value]) {

@@ -227,10 +227,14 @@ final class Store {
         await act(id) { try await Hub.call("alerts.snooze", ["id": id, "for": duration]) }
     }
 
-    func reply(_ id: Int, _ text: String) async {
+    /// Answer a message. `choice` is one of its options, when a button
+    /// answered it.
+    func reply(_ id: Int, _ text: String, choice: String? = nil) async {
+        var params: [String: Any] = ["id": id, "body": text, "caller": ["as_me": true]]
+        if let choice { params["choice"] = choice }
         await act(id) {
-            try await Hub.call("messages.reply", ["id": id, "body": text, "caller": ["as_me": true]])
-            self.flash("Reply to #\(id) queued; it goes in when the agent is idle")
+            try await Hub.call("messages.reply", params)
+            self.flash(choice.map { "Answered #\(id): “\($0)”" } ?? "Reply to #\(id) queued; it goes in when the agent is idle")
         }
     }
 

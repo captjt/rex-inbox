@@ -80,10 +80,21 @@ struct Message: Decodable, Identifiable, Hashable {
     let error: String?
     /// An app the sender serves for you to look at, on the tailnet.
     let preview: Preview?
+    /// The answers it offers, as buttons (`send --option`).
+    let options: [String]?
+    /// For a reply: the option it picked.
+    let choice: String?
 
     var from: String { fromBlock == nil ? "you" : fromAddr }
     /// A preview the agent waits on you to review: it belongs with what needs you.
     var wantsReview: Bool { preview?.waiting == true }
+
+    /// What its buttons answer with: its own options, or its preview's
+    /// while that waits on your review.
+    var choices: [String] {
+        if let options, !options.isEmpty { return options }
+        return preview?.waiting == true ? preview?.options ?? [] : []
+    }
 
     var firstLine: String {
         if let s = subject, !s.isEmpty { return s }
