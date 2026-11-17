@@ -48,14 +48,16 @@ impl Caller {
         }
     }
 
-    /// The caller as a message end. An agent pane speaks for itself; any
-    /// other pane (a shell you type in) speaks for you.
+    /// The caller as a message end. A pane whose program reports its status
+    /// to Rex speaks for itself: an agent, or a tool such as rex-develop,
+    /// which asks you things and reads your answers with `inbox`. A plain
+    /// shell reports nothing, and what you type there speaks for you.
     pub fn end(&self, core: &Core) -> End {
         if self.as_me {
             return address::me();
         }
         match self.block.as_deref().and_then(|b| core.pane(&self.host, b)) {
-            Some(p) if p.is_agent() => address::end_of(core, p),
+            Some(p) if p.app().is_some() => address::end_of(core, p),
             _ => address::me(),
         }
     }
@@ -478,6 +480,38 @@ mod tests {
         assert_eq!((r["choice"].as_str(), r["body"].as_str()), (Some("Needs work"), Some("the button's off")));
         let p = hub.lock().store.message(id).unwrap().unwrap().preview.unwrap();
         assert_eq!(p["answer"], "Needs work", "the preview shows the button you pressed");
+    }
+
+    #[tokio::test]
+    async fn a_tool_that_isnt_an_agent_asks_and_reads_the_answer_itself() {
+        let hub = hub_with("rex-develop");
+        let ask = json!({ "to": "me", "body": "Ship it?", "options": ["Ship", "Hold"] });
+        let m = call(&hub, "messages.send", from_pane(ask)).await.unwrap();
+        assert_eq!((m["from_block"].as_str(), m["from_addr"].as_str()), (Some("b1"), Some("s1/b1")));
+        let id = m["id"].as_i64().unwrap();
+        let r = call(&hub, "messages.reply", as_me(json!({ "id": id, "choice": "Ship" }))).await.unwrap();
+        assert_eq!(r["status"], "queued", "it waits: a tool's pane is never typed into");
+
+        // The tool lists it until it reads it, and then not again.
+        let list = call(&hub, "messages.list", from_pane(json!({}))).await.unwrap();
+        assert_eq!(list.as_array().unwrap().len(), 1);
+        assert_eq!(
+            (list[0]["reply_to"].as_i64(), list[0]["thread_id"].as_i64(), list[0]["choice"].as_str()),
+            (Some(id), Some(id), Some("Ship"))
+        );
+        let read = call(&hub, "messages.read", from_pane(json!({ "id": r["id"] }))).await.unwrap();
+        assert!(read["message"]["read_at"].is_string());
+        assert!(call(&hub, "messages.list", from_pane(json!({}))).await.unwrap().as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_plain_shell_speaks_for_you() {
+        let hub = Shared::for_tests();
+        hub.lock().hosts.get_mut("local").unwrap().apply_pane_status("s1", "b1", vec![], None, None);
+        let e = call(&hub, "messages.send", from_pane(json!({ "to": "me", "body": "hi" }))).await.unwrap_err();
+        assert!(e.to_string().contains("from you to you"), "{e}");
+        let who = call(&hub, "whoami", from_pane(json!({}))).await.unwrap();
+        assert_eq!(who["address"], "me");
     }
 
     #[tokio::test]

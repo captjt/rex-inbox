@@ -305,7 +305,9 @@ its pane, where you can read it.
   [What agents report when they finish](#what-agents-report-when-they-finish)).
 - **Messages** queue in the hub. A message is pasted into an agent's prompt
   (then Enter) once the pane has been `idle` or `done` for two seconds. Plain
-  shell panes are never typed into.
+  shell panes are never typed into. A tool that reports its status to Rex
+  but isn't an agent (rex-develop, say) messages as its pane, and reads the
+  answers with `rex-inbox inbox --json` and `read N`.
 - **Approve and deny** re-read the prompt from Rex first. Keys go only if
   it's the same `blocked` permission record, with the same message and
   report time, and the only prompt in that pane. Claude Code gets `1` and
